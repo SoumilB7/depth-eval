@@ -1,0 +1,6 @@
+[project]
+name = "depth-eval"
+version = "0.1.0"
+description = "Eval probing the depth of LLM instruction-following under mutating state"
+requires-python = ">=3.10"
+dependencies = ["sympy>=1.12"]

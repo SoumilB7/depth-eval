@@ -1,47 +1,88 @@
-"""The NumberOp type.
+"""Number operations as SymPy expressions.
 
-Classes in this project differentiate KINDS of things — they are typed
-containers, not inheritance hierarchies. A NumberOp is one kind: a pure
-mathematical function of one number `n` and one operand `x`, returning a new
-integer. Individual operations are instances of this class, never subclasses.
+An op IS a SymPy expression in the integer symbols n (the number) and x (the
+operand). The structure is the identity: the registry key is the canonical
+printed form of the expression (structure -> string, one way only — nothing
+is ever parsed back from a string).
 
-Domain convention: everything is integers, always. Operations that could
-leave the integers (division, average) floor instead, using Python floor
-semantics (rounds toward negative infinity).
+Evaluation is exact symbolic substitution — no floats anywhere, so values of
+any size stay exact. An op is undefined at a point when substitution raises
+ZeroDivisionError or yields a non-integer (zoo, nan, 7**-1 = 1/7, ...);
+`defined_for` reports this and the question generator must avoid the point.
+
+Semantics (SymPy's, which match Python's):
+- floor(a/b) == a // b  (rounds toward negative infinity)
+- Mod(a, b)  == a % b   (sign follows the divisor)
+- 0**0 == 1
 """
 
+import math
 from dataclasses import dataclass
-from typing import Callable
+
+import sympy as sp
+
+n = sp.Symbol("n", integer=True)
+x = sp.Symbol("x", integer=True)
 
 
-def _everywhere(n: int, x: int) -> bool:
-    return True
+class Gcd(sp.Function):
+    """Integer gcd, symbolic until both args are concrete integers.
+
+    (sympy.gcd on symbols does polynomial gcd — gcd(n, x) == 1 — hence this.)
+    """
+
+    @classmethod
+    def eval(cls, a, b):
+        if a.is_Integer and b.is_Integer:
+            return sp.Integer(math.gcd(int(a), int(b)))
+
+
+class Lcm(sp.Function):
+    """Integer lcm, symbolic until both args are concrete integers."""
+
+    @classmethod
+    def eval(cls, a, b):
+        if a.is_Integer and b.is_Integer:
+            return sp.Integer(math.lcm(int(a), int(b)))
 
 
 @dataclass(frozen=True)
 class NumberOp:
-    """A mathematical function (n, x) -> int.
+    """One operation: a SymPy expression plus its English phrase.
 
-    - name: stable snake_case identifier, used in registries and specs.
-    - template: phrase describing the NEW VALUE, with `{x}` as the operand
-      placeholder — e.g. "the number plus {x}". Sentence layers compose it,
-      e.g. "Replace every number with " + template.
-    - fn: the function itself.
-    - defined: where the function is defined (default: everywhere). The
-      question generator uses this to never emit an instruction that hits an
-      undefined point (division by zero, negative exponent, ...).
+    - expr: the function of n and x. Its canonical printed form (`id`) is
+      the op's identity everywhere (registry, specs, logs).
+    - phrase: English for the NEW VALUE, `{x}` as operand placeholder.
+      Instruction sentences show both renders, e.g.
+      "Replace every number with the number times 4 (4*n)".
     """
 
-    name: str
-    template: str
-    fn: Callable[[int, int], int]
-    defined: Callable[[int, int], bool] = _everywhere
+    expr: sp.Expr
+    phrase: str
 
-    def apply(self, n: int, x: int) -> int:
-        return self.fn(n, x)
+    @property
+    def id(self) -> str:
+        return str(self.expr)
 
-    def defined_for(self, n: int, x: int) -> bool:
-        return self.defined(n, x)
+    def _eval(self, nv: int, xv: int) -> sp.Basic:
+        try:
+            return self.expr.subs({n: nv, x: xv})
+        except ZeroDivisionError:
+            return sp.nan
 
-    def render(self, x: int) -> str:
-        return self.template.format(x=x)
+    def defined_for(self, nv: int, xv: int) -> bool:
+        return self._eval(nv, xv).is_Integer is True
+
+    def apply(self, nv: int, xv: int) -> int:
+        result = self._eval(nv, xv)
+        if result.is_Integer is not True:
+            raise ValueError(f"{self.id} is undefined at n={nv}, x={xv}")
+        return int(result)
+
+    def formula(self, xv: int) -> str:
+        """The expression with a concrete x filled in, e.g. 'floor(n/7)'."""
+        return str(self.expr.subs(x, xv))
+
+    def render(self, xv: int) -> str:
+        """Both renders: English phrase, formula in parentheses."""
+        return f"{self.phrase.format(x=xv)} ({self.formula(xv)})"

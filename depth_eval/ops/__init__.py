@@ -1,12 +1,14 @@
 """Operation registry.
 
 Registration is explicit — an op exists in the eval if and only if it is
-listed here. No magic auto-discovery.
+listed here. Keys are canonical printed expressions; SymPy canonicalization
+means two entries for the same function collide, and the assert catches it.
 """
 
 from .arithmetic import ARITHMETIC_OPS
-from .base import NumberOp
+from .base import Gcd, Lcm, NumberOp, n, x
 
-NUMBER_OPS: dict[str, NumberOp] = {op.name: op for op in ARITHMETIC_OPS}
+NUMBER_OPS: dict[str, NumberOp] = {op.id: op for op in ARITHMETIC_OPS}
+assert len(NUMBER_OPS) == len(ARITHMETIC_OPS), "duplicate op expression in registry"
 
-__all__ = ["NumberOp", "NUMBER_OPS"]
+__all__ = ["NumberOp", "NUMBER_OPS", "Gcd", "Lcm", "n", "x"]
