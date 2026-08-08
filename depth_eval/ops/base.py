@@ -21,6 +21,8 @@ from dataclasses import dataclass
 
 import sympy as sp
 
+from .operands import phrase as operand_phrase
+
 n = sp.Symbol("n", integer=True)
 x = sp.Symbol("x", integer=True)
 
@@ -79,10 +81,14 @@ class NumberOp:
             raise ValueError(f"{self.id} is undefined at n={nv}, x={xv}")
         return int(result)
 
-    def formula(self, xv: int) -> str:
-        """The expression with a concrete x filled in, e.g. 'floor(n/7)'."""
-        return str(self.expr.subs(x, xv))
+    def formula(self, operand) -> str:
+        """The expression with the operand filled in for x.
 
-    def render(self, xv: int) -> str:
+        The operand may be a literal int or any operand expression, e.g.
+        At(4) — giving 'floor(n/7)' or 'floor(n/At(4))'.
+        """
+        return str(self.expr.subs(x, sp.sympify(operand)))
+
+    def render(self, operand) -> str:
         """Both renders: English phrase, formula in parentheses."""
-        return f"{self.phrase.format(x=xv)} ({self.formula(xv)})"
+        return f"{self.phrase.format(x=operand_phrase(operand))} ({self.formula(operand)})"
