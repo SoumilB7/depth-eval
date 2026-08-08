@@ -1,45 +1,47 @@
-"""Base class for number operations.
+"""The NumberOp type.
 
-A NumberOp is a pure mathematical function of one number `n` and one operand
-`x`, returning a new integer. It carries its own human-language template so
-wording and behaviour live side by side and cannot drift.
+Classes in this project differentiate KINDS of things — they are typed
+containers, not inheritance hierarchies. A NumberOp is one kind: a pure
+mathematical function of one number `n` and one operand `x`, returning a new
+integer. Individual operations are instances of this class, never subclasses.
 
 Domain convention: everything is integers, always. Operations that could
 leave the integers (division, average) floor instead, using Python floor
 semantics (rounds toward negative infinity).
 """
 
-from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import Callable
 
 
-class NumberOp(ABC):
+def _everywhere(n: int, x: int) -> bool:
+    return True
+
+
+@dataclass(frozen=True)
+class NumberOp:
     """A mathematical function (n, x) -> int.
 
-    Class attributes every subclass must set:
     - name: stable snake_case identifier, used in registries and specs.
-    - template: a phrase describing the NEW VALUE, with `{x}` as the operand
+    - template: phrase describing the NEW VALUE, with `{x}` as the operand
       placeholder — e.g. "the number plus {x}". Sentence layers compose it,
       e.g. "Replace every number with " + template.
+    - fn: the function itself.
+    - defined: where the function is defined (default: everywhere). The
+      question generator uses this to never emit an instruction that hits an
+      undefined point (division by zero, negative exponent, ...).
     """
 
     name: str
     template: str
+    fn: Callable[[int, int], int]
+    defined: Callable[[int, int], bool] = _everywhere
 
-    @abstractmethod
     def apply(self, n: int, x: int) -> int:
-        """Return the new value. Only called when defined_for(n, x) is True."""
+        return self.fn(n, x)
 
     def defined_for(self, n: int, x: int) -> bool:
-        """Whether the function is defined at (n, x). Default: everywhere.
-
-        The question generator uses this to never emit an instruction that
-        hits an undefined point (division by zero, negative exponent, ...).
-        """
-        return True
+        return self.defined(n, x)
 
     def render(self, x: int) -> str:
-        """The template with a concrete x filled in."""
         return self.template.format(x=x)
-
-    def __repr__(self) -> str:
-        return f"{type(self).__name__}(name={self.name!r})"
