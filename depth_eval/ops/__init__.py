@@ -7,9 +7,21 @@ means two entries for the same function collide, and the assert catches it.
 
 from .arithmetic import ARITHMETIC_OPS
 from .base import Gcd, Lcm, NumberOp, n, x
-from .operands import At, resolvable, resolve
+from .operands import At, Changed, effect_refs, resolvable, resolve
 
 NUMBER_OPS: dict[str, NumberOp] = {op.id: op for op in ARITHMETIC_OPS}
 assert len(NUMBER_OPS) == len(ARITHMETIC_OPS), "duplicate op expression in registry"
 
-__all__ = ["NumberOp", "NUMBER_OPS", "Gcd", "Lcm", "n", "x", "At", "resolve", "resolvable"]
+__all__ = [
+    "NumberOp",
+    "NUMBER_OPS",
+    "Gcd",
+    "Lcm",
+    "n",
+    "x",
+    "At",
+    "Changed",
+    "effect_refs",
+    "resolve",
+    "resolvable",
+]

@@ -29,8 +29,37 @@ def At(position: int) -> sp.Indexed:
     return L[position]
 
 
-def resolve(operand, seq: list[int]) -> int:
-    """Collapse an operand expression to a concrete integer against seq."""
+class Changed(sp.Function):
+    """The count of positions whose value changed when instruction j last
+    executed (j is a 1-based instruction listing number).
+
+    An EFFECT reference: resolving it requires instruction j to have already
+    executed, so it creates an exec dependency — the executor auto-holds the
+    referencing instruction until j has run, past or future. With repeats,
+    "last executed" means the most recent execution.
+    """
+
+    def _eval_is_integer(self):
+        return True
+
+
+def effect_refs(operand) -> set[int]:
+    """Instruction numbers whose effect the operand references."""
+    refs = set()
+    for e in sp.sympify(operand).atoms(Changed):
+        j = e.args[0]
+        if not j.is_Integer:
+            raise ValueError(f"non-integer instruction reference in {operand}")
+        refs.add(int(j))
+    return refs
+
+
+def resolve(operand, seq: list[int], effects: dict[int, int] | None = None) -> int:
+    """Collapse an operand expression to a concrete integer.
+
+    seq is the CURRENT list; effects maps instruction number -> change count
+    of its latest execution (for Changed references).
+    """
     expr = sp.sympify(operand)
 
     def lookup(ref: sp.Indexed) -> sp.Integer:
@@ -42,15 +71,22 @@ def resolve(operand, seq: list[int]) -> int:
             raise ValueError(f"position {i} out of range 0..{len(seq) - 1}")
         return sp.Integer(seq[i])
 
+    def lookup_effect(ref: Changed) -> sp.Integer:
+        j = int(ref.args[0])
+        if effects is None or j not in effects:
+            raise ValueError(f"instruction {j} has not executed — {expr} unresolvable")
+        return sp.Integer(effects[j])
+
     result = expr.replace(lambda e: isinstance(e, sp.Indexed) and e.base == L, lookup)
+    result = result.replace(lambda e: isinstance(e, Changed), lookup_effect)
     if result.is_Integer is not True:
         raise ValueError(f"operand {expr} did not resolve to an integer")
     return int(result)
 
 
-def resolvable(operand, seq: list[int]) -> bool:
+def resolvable(operand, seq: list[int], effects: dict[int, int] | None = None) -> bool:
     try:
-        resolve(operand, seq)
+        resolve(operand, seq, effects)
         return True
     except (ValueError, ZeroDivisionError):
         return False
@@ -65,4 +101,6 @@ def phrase(operand) -> str:
     expr = sp.sympify(operand)
     if isinstance(expr, sp.Indexed) and expr.base == L:
         return f"the number at position {expr.indices[0]}"
+    if isinstance(expr, Changed):
+        return f"the count of numbers instruction {expr.args[0]} changed"
     return str(expr)

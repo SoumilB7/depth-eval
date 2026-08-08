@@ -1,21 +1,24 @@
-"""Instruction chains and their execution.
+"""Instruction chains and their execution (pass 3 of the solver).
 
 An Instruction is one line of a question: an operation with an operand,
 optionally HELD — "execute this only after instruction #k has executed".
-A held instruction parks until its trigger runs, then executes immediately
-after it. Several instructions parked on the same trigger keep their listed
-order; releases cascade (a released instruction can itself be a trigger).
+Effect references in an operand (Changed(j)) hold implicitly, with no hold
+clause. Ordering itself is decided statically in dag.schedule(); execution
+here just replays that schedule against the data.
 
 Operands resolve at EXECUTION time: At(p) reads the list as it stands when
-the instruction actually runs — never the state at its listed position.
+the instruction actually runs — never the state at its listed position —
+and Changed(j) reads instruction j's latest execution.
 
-Unsatisfiable holds (self-hold, circular holds, trigger out of range) leave
-instructions permanently parked; execute() raises on them, and the question
-generator must never emit such a chain.
+The trace is event-based: one Step per execution event. Instructions
+currently execute once each, but repeats (an instruction executing again)
+are an allowed future feature — effect references always mean the LATEST
+execution of their target.
 """
 
 from dataclasses import dataclass
 
+from .dag import schedule
 from .ops.base import NumberOp
 from .ops.operands import resolve
 
@@ -24,7 +27,7 @@ from .ops.operands import resolve
 class Instruction:
     """One line: apply `op` with `operand` (int or operand expression).
 
-    hold_until_after: 1-indexed number of the instruction that must have
+    hold_until_after: 1-based number of the instruction that must have
     executed first, or None to execute at its listed position.
     """
 
@@ -44,11 +47,12 @@ class Instruction:
 
 @dataclass(frozen=True)
 class Step:
-    """One executed instruction in the trace."""
+    """One execution event in the trace."""
 
-    instruction: int  # 1-indexed listing number
+    instruction: int  # 1-based listing number
     x: int            # the operand's resolved value at execution time
-    seq: list[int]    # list state after this instruction
+    changed: int      # count of positions whose value changed
+    seq: list[int]    # list state after this event
 
 
 def render_question(instructions: list[Instruction]) -> str:
@@ -56,29 +60,19 @@ def render_question(instructions: list[Instruction]) -> str:
 
 
 def execute(instructions: list[Instruction], start: list[int]) -> tuple[list[int], list[Step]]:
-    """Run a chain, honouring holds. Returns (final list, ordered trace)."""
+    """Run a chain in its scheduled order. Returns (final list, trace)."""
+    order = schedule(instructions)
     seq = list(start)
-    executed: set[int] = set()
-    parked: dict[int, list[int]] = {}
+    effects: dict[int, int] = {}
     trace: list[Step] = []
 
-    def run(number: int) -> None:
+    for number in order:
         ins = instructions[number - 1]
-        x = resolve(ins.operand, seq)
-        seq[:] = [ins.op.apply(v, x) for v in seq]
-        executed.add(number)
-        trace.append(Step(number, x, list(seq)))
-        for waiting in parked.pop(number, []):
-            run(waiting)
+        x = resolve(ins.operand, seq, effects)
+        new = [ins.op.apply(v, x) for v in seq]
+        changed = sum(1 for old, now in zip(seq, new) if old != now)
+        seq = new
+        effects[number] = changed
+        trace.append(Step(number, x, changed, list(seq)))
 
-    for number, ins in enumerate(instructions, start=1):
-        trigger = ins.hold_until_after
-        if trigger is not None and trigger not in executed:
-            parked.setdefault(trigger, []).append(number)
-        else:
-            run(number)
-
-    if parked:
-        stuck = sorted(number for waiting in parked.values() for number in waiting)
-        raise ValueError(f"instructions {stuck} never executed (bad or circular holds)")
     return seq, trace
