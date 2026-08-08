@@ -76,6 +76,13 @@ class NumberOp:
         return self._eval(nv, xv).is_Integer is True
 
     def apply(self, nv: int, xv: int) -> int:
+        # Hard boundary: ops only ever receive plain integers. References
+        # (At/L[p]) are resolved by the executor BEFORE anything reaches here.
+        if type(nv) is not int or type(xv) is not int:
+            raise TypeError(
+                f"NumberOp.apply takes plain ints, got n={nv!r}, x={xv!r} — "
+                "resolve operands first"
+            )
         result = self._eval(nv, xv)
         if result.is_Integer is not True:
             raise ValueError(f"{self.id} is undefined at n={nv}, x={xv}")
