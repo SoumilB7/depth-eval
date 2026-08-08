@@ -67,8 +67,11 @@ class NumberOp:
         return str(self.expr)
 
     def _eval(self, nv: int, xv: int) -> sp.Basic:
+        # x substitutes BEFORE n: a zero divisor must be undefined for every
+        # n, but n-first lets SymPy short-circuit (Mod(0, x) -> 0) and make
+        # e.g. 0 mod 0 look defined.
         try:
-            return self.expr.subs({n: nv, x: xv})
+            return self.expr.subs(x, xv).subs(n, nv)
         except ZeroDivisionError:
             return sp.nan
 

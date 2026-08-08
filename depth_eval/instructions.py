@@ -68,8 +68,13 @@ def execute(instructions: list[Instruction], start: list[int]) -> tuple[list[int
 
     for number in order:
         ins = instructions[number - 1]
-        x = resolve(ins.operand, seq, effects)
-        new = [ins.op.apply(v, x) for v in seq]
+        try:
+            x = resolve(ins.operand, seq, effects)
+            new = [ins.op.apply(v, x) for v in seq]
+        except ValueError as e:
+            error = ValueError(f"instruction {number}: {e}")
+            error.instruction = number
+            raise error from e
         changed = sum(1 for old, now in zip(seq, new) if old != now)
         seq = new
         effects[number] = changed
