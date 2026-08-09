@@ -95,10 +95,15 @@ class NumberOp:
         """The expression with the operand filled in for x.
 
         The operand may be a literal int or any operand expression, e.g.
-        At(4) — giving 'floor(n/7)' or 'floor(n/At(4))'.
+        At(4) — giving 'floor(n/7)' or 'floor(n/List[4])'.
         """
         return str(self.expr.subs(x, sp.sympify(operand)))
 
+    def wording(self, operand) -> str:
+        """The English render with the operand filled in for x —
+        'the number times 6' / 'the number times the number at position 4'."""
+        return self.phrase.format(x=operand_phrase(operand))
+
     def render(self, operand) -> str:
         """Both renders: English phrase, formula in parentheses."""
-        return f"{self.phrase.format(x=operand_phrase(operand))} ({self.formula(operand)})"
+        return f"{self.wording(operand)} ({self.formula(operand)})"

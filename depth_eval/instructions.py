@@ -51,7 +51,8 @@ class Step:
 
     instruction: int  # 1-based listing number
     x: int            # the operand's resolved value at execution time
-    operation: str    # the exact operation applied, x substituted ("-n - 78")
+    operation: str    # exact operation applied, formula render ("-n - 78")
+    words: str        # exact operation applied, worded ("-78 minus the number")
     changed: int      # count of positions whose value changed
     seq: list[int]    # list state after this event
 
@@ -79,6 +80,6 @@ def execute(instructions: list[Instruction], start: list[int]) -> tuple[list[int
         changed = sum(1 for old, now in zip(seq, new) if old != now)
         seq = new
         effects[number] = changed
-        trace.append(Step(number, x, ins.op.formula(x), changed, list(seq)))
+        trace.append(Step(number, x, ins.op.formula(x), ins.op.wording(x), changed, list(seq)))
 
     return seq, trace
