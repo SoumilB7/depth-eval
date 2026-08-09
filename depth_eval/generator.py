@@ -28,9 +28,12 @@ from .validation import validate
 
 @dataclass(frozen=True)
 class GeneratorConfig:
-    """The frequency knobs of question generation."""
+    """The frequency knobs of question generation.
 
-    steps: int = 10
+    Deliberately NOT here: `steps` (the chain length). Depth is the eval's
+    independent variable — it belongs to the run, passed to generate().
+    """
+
     length: int = 100
     low: int = 0
     high: int = 50
@@ -61,6 +64,7 @@ class Question:
 
     list_seed: int
     instruction_seed: int
+    steps: int
     config: GeneratorConfig
     start: list[int]
     companions: list[list[int]]  # row k-1 belongs to instruction k
@@ -71,7 +75,7 @@ class Question:
     attempts: int  # candidates consumed until one passed all gates
 
 
-def _random_operand(rng: random.Random, config: GeneratorConfig, number: int):
+def _random_operand(rng: random.Random, config: GeneratorConfig, steps: int, number: int):
     kinds = list(config.operand_weights)
     kind = rng.choices(kinds, weights=list(config.operand_weights.values()))[0]
     if kind == "at":
@@ -81,7 +85,7 @@ def _random_operand(rng: random.Random, config: GeneratorConfig, number: int):
     if kind == "at_companion":
         return B[number, rng.randint(0, config.length - 1)]
     if kind == "changed":
-        others = [j for j in range(1, config.steps + 1) if j != number]
+        others = [j for j in range(1, steps + 1) if j != number]
         if others:
             return Changed(rng.choice(others))
     if kind == "matching":
@@ -91,13 +95,15 @@ def _random_operand(rng: random.Random, config: GeneratorConfig, number: int):
     return rng.randint(config.literal_low, config.literal_high)
 
 
-def _random_chain(rng: random.Random, config: GeneratorConfig, pool: list[str]) -> list[Instruction]:
+def _random_chain(
+    rng: random.Random, config: GeneratorConfig, steps: int, pool: list[str]
+) -> list[Instruction]:
     chain = []
-    for number in range(1, config.steps + 1):
+    for number in range(1, steps + 1):
         op = NUMBER_OPS[rng.choice(pool)]
-        operand = _random_operand(rng, config, number)
+        operand = _random_operand(rng, config, steps, number)
         hold = None
-        others = [j for j in range(1, config.steps + 1) if j != number]
+        others = [j for j in range(1, steps + 1) if j != number]
         if others and rng.random() < config.hold_chance:
             hold = rng.choice(others)
         chain.append(Instruction(op, operand, hold_until_after=hold))
@@ -105,10 +111,17 @@ def _random_chain(rng: random.Random, config: GeneratorConfig, pool: list[str]) 
 
 
 def generate(
-    list_seed: int, instruction_seed: int, config: GeneratorConfig = GeneratorConfig()
+    list_seed: int,
+    instruction_seed: int,
+    steps: int,
+    config: GeneratorConfig = GeneratorConfig(),
 ) -> Question:
-    """Produce one valid, non-degenerate, fully-solved Question."""
-    lists = make_sequences(list_seed, 1 + config.steps, config.length, config.low, config.high)
+    """Produce one valid, non-degenerate, fully-solved Question.
+
+    steps — the depth of the run (chain length), the eval's independent
+    variable; everything else about question flavour comes from config.
+    """
+    lists = make_sequences(list_seed, 1 + steps, config.length, config.low, config.high)
     start, companions = lists[0], lists[1:]
     rng = random.Random(instruction_seed)
     pool = [
@@ -119,7 +132,7 @@ def generate(
     floor = max(2, int(config.min_distinct_fraction * config.length))
 
     for attempt in range(1, config.max_attempts + 1):
-        chain = _random_chain(rng, config, pool)
+        chain = _random_chain(rng, config, steps, pool)
         if validate(chain, start, companions):
             continue
         final, trace = execute(chain, start, companions)
@@ -128,6 +141,7 @@ def generate(
         return Question(
             list_seed=list_seed,
             instruction_seed=instruction_seed,
+            steps=steps,
             config=config,
             start=start,
             companions=companions,
