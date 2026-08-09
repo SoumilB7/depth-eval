@@ -21,7 +21,7 @@ import random
 from dataclasses import dataclass, field
 
 from .instructions import Instruction, Step, execute, render_question
-from .ops import NUMBER_OPS, At, B, Changed, P
+from .ops import NUMBER_OPS, At, B, Changed, P, START
 from .sequence import make_sequences
 from .validation import validate
 
@@ -39,11 +39,13 @@ class GeneratorConfig:
     # relative frequency of each operand kind
     operand_weights: dict[str, int] = field(
         default_factory=lambda: {
-            "literal": 40,    # a plain number
-            "at": 20,         # List[i] — value at a fixed position
-            "changed": 15,    # Changed[j] — effect reference (auto-holds)
-            "matching": 15,   # B[k, p] — instruction k's own companion row
-            "position": 10,   # p — the element's own position
+            "literal": 30,     # a plain number
+            "at": 15,          # List[i] — current value at a fixed position
+            "at_start": 10,    # Start[i] — original value at a fixed position
+            "at_companion": 10,  # B[k, i] — fixed spot in own companion row
+            "changed": 15,     # Changed[j] — effect reference (auto-holds)
+            "matching": 10,    # B[k, p] — own companion row, matching position
+            "position": 10,    # p — the element's own position
         }
     )
     hold_chance: float = 0.25
@@ -74,6 +76,10 @@ def _random_operand(rng: random.Random, config: GeneratorConfig, number: int):
     kind = rng.choices(kinds, weights=list(config.operand_weights.values()))[0]
     if kind == "at":
         return At(rng.randint(0, config.length - 1))
+    if kind == "at_start":
+        return START[rng.randint(0, config.length - 1)]
+    if kind == "at_companion":
+        return B[number, rng.randint(0, config.length - 1)]
     if kind == "changed":
         others = [j for j in range(1, config.steps + 1) if j != number]
         if others:

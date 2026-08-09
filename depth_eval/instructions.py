@@ -74,6 +74,7 @@ def execute(
     """
     order = schedule(instructions)
     seq = list(start)
+    original = list(start)  # frozen — what Start[i] reads
     effects: dict[int, int] = {}
     trace: list[Step] = []
 
@@ -81,7 +82,7 @@ def execute(
         ins = instructions[number - 1]
         per_element = is_elementwise(ins.operand)
         try:
-            xs = resolve_elementwise(ins.operand, seq, effects, companions)
+            xs = resolve_elementwise(ins.operand, seq, effects, companions, original)
             new = [ins.op.apply(v, xv) for v, xv in zip(seq, xs)]
         except ValueError as e:
             error = ValueError(f"instruction {number}: {e}")

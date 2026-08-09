@@ -31,7 +31,7 @@ import sympy as sp
 
 from .dag import triggers
 from .instructions import Instruction, execute
-from .ops.operands import B, L, P
+from .ops.operands import B, L, P, START
 
 
 @dataclass(frozen=True)
@@ -76,7 +76,7 @@ def _static_issues(
                 deps[i].add(j)
 
         for ref in sp.sympify(ins.operand).atoms(sp.Indexed):
-            if ref.base == L:
+            if ref.base == L or ref.base == START:
                 pos = ref.indices[0]
             elif ref.base == B:
                 if companion_rows is None:

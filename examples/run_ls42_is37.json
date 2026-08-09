@@ -15,10 +15,12 @@
       10
     ],
     "operand_weights": {
-      "literal": 40,
-      "at": 20,
+      "literal": 30,
+      "at": 15,
+      "at_start": 10,
+      "at_companion": 10,
       "changed": 15,
-      "matching": 15,
+      "matching": 10,
       "position": 10
     },
     "hold_chance": 0.25,
@@ -26,10 +28,12 @@
     "min_distinct_fraction": 0.3
   },
   "conventions": {
-    "positions": "0-indexed; List[i] read at execution time",
+    "positions": "0-indexed",
+    "List": "List[i] = current value at position i, read at execution time",
+    "Start": "Start[i] = the ORIGINAL list value at i (frozen); Start[p] = each element own original value",
+    "B": "B[k, p]: instruction k own frozen companion row; pre-addressed from list_seed stream, surfaced only when referenced",
+    "p": "each element own 0-indexed position",
     "instructions": "1-based listing; holds and Changed[j] use listing numbers",
-    "p": "each element own 0-indexed position (per-element operands)",
-    "B": "B[k, p]: instruction k own frozen companion row; rows pre-addressed from list_seed stream at fixed offsets, surfaced only when referenced",
     "changed": "Changed[j] = positions changed by j latest execution"
   },
   "start": [
@@ -45,65 +49,113 @@
     6
   ],
   "companion_rows_used": {
-    "B6": [
-      5,
+    "B2": [
+      14,
+      32,
+      38,
+      1,
       35,
-      18,
-      40,
-      39,
-      23,
-      36,
       12,
       45,
-      4
-    ],
-    "B7": [
-      2,
-      42,
-      14,
-      49,
-      18,
-      5,
-      14,
-      6,
-      24,
-      17
-    ],
-    "B16": [
-      38,
-      29,
-      33,
-      16,
-      35,
-      0,
-      43,
-      46,
-      7,
-      43
-    ],
-    "B24": [
-      19,
-      25,
-      42,
       41,
-      23,
-      28,
-      33,
-      28,
-      7,
-      15
+      44,
+      34
     ],
-    "B30": [
-      3,
-      25,
-      46,
+    "B4": [
+      21,
+      17,
+      9,
+      13,
+      48,
       21,
       6,
-      15,
-      12,
-      12,
+      5,
+      24,
+      6
+    ],
+    "B9": [
+      43,
+      41,
+      4,
+      38,
+      40,
+      10,
       34,
-      28
+      46,
+      15,
+      10
+    ],
+    "B13": [
+      8,
+      15,
+      47,
+      35,
+      34,
+      16,
+      47,
+      37,
+      27,
+      37
+    ],
+    "B17": [
+      34,
+      48,
+      17,
+      49,
+      41,
+      21,
+      7,
+      18,
+      27,
+      10
+    ],
+    "B20": [
+      34,
+      49,
+      33,
+      0,
+      38,
+      20,
+      31,
+      1,
+      7,
+      23
+    ],
+    "B21": [
+      19,
+      15,
+      3,
+      15,
+      36,
+      5,
+      5,
+      46,
+      31,
+      4
+    ],
+    "B26": [
+      4,
+      45,
+      40,
+      3,
+      14,
+      4,
+      2,
+      21,
+      4,
+      32
+    ],
+    "B28": [
+      30,
+      15,
+      50,
+      30,
+      26,
+      12,
+      6,
+      6,
+      42,
+      27
     ],
     "B31": [
       8,
@@ -117,30 +169,6 @@
       35,
       6
     ],
-    "B32": [
-      3,
-      41,
-      34,
-      0,
-      5,
-      48,
-      15,
-      10,
-      26,
-      31
-    ],
-    "B35": [
-      31,
-      9,
-      12,
-      18,
-      13,
-      3,
-      37,
-      47,
-      34,
-      3
-    ],
     "B36": [
       47,
       20,
@@ -152,415 +180,411 @@
       33,
       10,
       3
+    ],
+    "B38": [
+      36,
+      15,
+      37,
+      38,
+      2,
+      39,
+      5,
+      26,
+      42,
+      37
+    ],
+    "B40": [
+      25,
+      8,
+      42,
+      41,
+      19,
+      29,
+      20,
+      48,
+      4,
+      0
     ]
   },
   "instructions": [
     {
       "number": 1,
       "op": "Max(n, x)",
-      "operand": "List[7]",
-      "hold_until_after": null,
-      "text": "1. Replace every number with the larger of the number and the number at position 7 (Max(n, List[7]))"
+      "operand": "p",
+      "hold_until_after": 11,
+      "text": "1. Hold this instruction until instruction 11 has executed, then apply it: Replace every number with the larger of the number and its own position (Max(n, p))"
     },
     {
       "number": 2,
-      "op": "Min(n, x)",
-      "operand": "List[4]",
+      "op": "x",
+      "operand": "B[2, 3]",
       "hold_until_after": null,
-      "text": "2. Replace every number with the smaller of the number and the number at position 4 (Min(n, List[4]))"
+      "text": "2. Replace every number with the number at position 3 in list B2 (B[2, 3])"
     },
     {
       "number": 3,
-      "op": "Mod(n, x)",
-      "operand": "9",
+      "op": "Min(n, x)",
+      "operand": "3",
       "hold_until_after": null,
-      "text": "3. Replace every number with the remainder when the number is divided by 9 (Mod(n, 9))"
+      "text": "3. Replace every number with the smaller of the number and 3 (Min(3, n))"
     },
     {
       "number": 4,
-      "op": "Abs(n - x)",
-      "operand": "10",
-      "hold_until_after": 21,
-      "text": "4. Hold this instruction until instruction 21 has executed, then apply it: Replace every number with the absolute difference between the number and 10 (Abs(n - 10))"
+      "op": "floor(n/x)",
+      "operand": "B[4, 1]",
+      "hold_until_after": null,
+      "text": "4. Replace every number with the number divided by the number at position 1 in list B4, rounded down (floor(n/B[4, 1]))"
     },
     {
       "number": 5,
-      "op": "Lcm(n, x)",
-      "operand": "Changed[8]",
-      "hold_until_after": null,
-      "text": "5. Replace every number with the least common multiple of the number and the count of numbers instruction 8 changed (Lcm(n, Changed[8]))"
+      "op": "floor(n/2 + x/2)",
+      "operand": "5",
+      "hold_until_after": 28,
+      "text": "5. Hold this instruction until instruction 28 has executed, then apply it: Replace every number with the average of the number and 5, rounded down (floor(n/2 + 5/2))"
     },
     {
       "number": 6,
-      "op": "Abs(n - x)",
-      "operand": "B[6, p]",
+      "op": "Max(n, x)",
+      "operand": "p",
       "hold_until_after": null,
-      "text": "6. Replace every number with the absolute difference between the number and the matching number in list B6 (Abs(n - B[6, p]))"
+      "text": "6. Replace every number with the larger of the number and its own position (Max(n, p))"
     },
     {
       "number": 7,
-      "op": "Lcm(n, x)",
-      "operand": "B[7, p]",
-      "hold_until_after": 30,
-      "text": "7. Hold this instruction until instruction 30 has executed, then apply it: Replace every number with the least common multiple of the number and the matching number in list B7 (Lcm(n, B[7, p]))"
+      "op": "Min(n, x)",
+      "operand": "Start[0]",
+      "hold_until_after": null,
+      "text": "7. Replace every number with the smaller of the number and the original number at position 0 (Min(n, Start[0]))"
     },
     {
       "number": 8,
-      "op": "n*x",
-      "operand": "6",
+      "op": "Lcm(n, x)",
+      "operand": "3",
       "hold_until_after": null,
-      "text": "8. Replace every number with the number times 6 (6*n)"
+      "text": "8. Replace every number with the least common multiple of the number and 3 (Lcm(n, 3))"
     },
     {
       "number": 9,
-      "op": "Max(n, x)",
-      "operand": "3",
-      "hold_until_after": 24,
-      "text": "9. Hold this instruction until instruction 24 has executed, then apply it: Replace every number with the larger of the number and 3 (Max(3, n))"
+      "op": "floor(n/x)",
+      "operand": "B[9, p]",
+      "hold_until_after": 21,
+      "text": "9. Hold this instruction until instruction 21 has executed, then apply it: Replace every number with the number divided by the matching number in list B9, rounded down (floor(n/B[9, p]))"
     },
     {
       "number": 10,
-      "op": "-n + x",
-      "operand": "List[1]",
+      "op": "Abs(n - x)",
+      "operand": "List[5]",
       "hold_until_after": null,
-      "text": "10. Replace every number with the number at position 1 minus the number (-n + List[1])"
+      "text": "10. Replace every number with the absolute difference between the number and the number at position 5 (Abs(n - List[5]))"
     },
     {
       "number": 11,
-      "op": "floor(x/n)",
-      "operand": "10",
-      "hold_until_after": 32,
-      "text": "11. Hold this instruction until instruction 32 has executed, then apply it: Replace every number with 10 divided by the number, rounded down (floor(10/n))"
+      "op": "x",
+      "operand": "3",
+      "hold_until_after": null,
+      "text": "11. Replace every number with 3 (3)"
     },
     {
       "number": 12,
-      "op": "Min(n, x)",
-      "operand": "List[1]",
-      "hold_until_after": 5,
-      "text": "12. Hold this instruction until instruction 5 has executed, then apply it: Replace every number with the smaller of the number and the number at position 1 (Min(n, List[1]))"
+      "op": "floor(n/2 + x/2)",
+      "operand": "Changed[14]",
+      "hold_until_after": null,
+      "text": "12. Replace every number with the average of the number and the count of numbers instruction 14 changed, rounded down (floor(n/2 + Changed[14]/2))"
     },
     {
       "number": 13,
-      "op": "floor(n/x)",
-      "operand": "9",
+      "op": "floor(x/n)",
+      "operand": "B[13, p]",
       "hold_until_after": null,
-      "text": "13. Replace every number with the number divided by 9, rounded down (floor(n/9))"
+      "text": "13. Replace every number with the matching number in list B13 divided by the number, rounded down (floor(B[13, p]/n))"
     },
     {
       "number": 14,
-      "op": "x",
-      "operand": "6",
-      "hold_until_after": null,
-      "text": "14. Replace every number with 6 (6)"
+      "op": "Abs(n - x)",
+      "operand": "Changed[33]",
+      "hold_until_after": 4,
+      "text": "14. Hold this instruction until instruction 4 has executed, then apply it: Replace every number with the absolute difference between the number and the count of numbers instruction 33 changed (Abs(n - Changed[33]))"
     },
     {
       "number": 15,
-      "op": "Gcd(n, x)",
-      "operand": "Changed[35]",
+      "op": "floor(n/2 + x/2)",
+      "operand": "List[6]",
       "hold_until_after": null,
-      "text": "15. Replace every number with the greatest common divisor of the number and the count of numbers instruction 35 changed (Gcd(n, Changed[35]))"
+      "text": "15. Replace every number with the average of the number and the number at position 6, rounded down (floor(n/2 + List[6]/2))"
     },
     {
       "number": 16,
-      "op": "n*x",
-      "operand": "B[16, p]",
-      "hold_until_after": 12,
-      "text": "16. Hold this instruction until instruction 12 has executed, then apply it: Replace every number with the number times the matching number in list B16 (n*B[16, p])"
+      "op": "floor(n/2 + x/2)",
+      "operand": "p",
+      "hold_until_after": null,
+      "text": "16. Replace every number with the average of the number and its own position, rounded down (floor(n/2 + p/2))"
     },
     {
       "number": 17,
-      "op": "n*x",
-      "operand": "List[1]",
+      "op": "Max(n, x)",
+      "operand": "B[17, p]",
       "hold_until_after": null,
-      "text": "17. Replace every number with the number times the number at position 1 (n*List[1])"
+      "text": "17. Replace every number with the larger of the number and the matching number in list B17 (Max(n, B[17, p]))"
     },
     {
       "number": 18,
-      "op": "Abs(n - x)",
-      "operand": "List[8]",
+      "op": "n - x",
+      "operand": "7",
       "hold_until_after": null,
-      "text": "18. Replace every number with the absolute difference between the number and the number at position 8 (Abs(n - List[8]))"
+      "text": "18. Replace every number with the number minus 7 (n - 7)"
     },
     {
       "number": 19,
-      "op": "Mod(x, n)",
-      "operand": "Changed[20]",
-      "hold_until_after": null,
-      "text": "19. Replace every number with the remainder when the count of numbers instruction 20 changed is divided by the number (Mod(Changed[20], n))"
+      "op": "n + x",
+      "operand": "6",
+      "hold_until_after": 28,
+      "text": "19. Hold this instruction until instruction 28 has executed, then apply it: Replace every number with the number plus 6 (n + 6)"
     },
     {
       "number": 20,
-      "op": "Lcm(n, x)",
-      "operand": "2",
+      "op": "Max(n, x)",
+      "operand": "B[20, p]",
       "hold_until_after": null,
-      "text": "20. Replace every number with the least common multiple of the number and 2 (Lcm(n, 2))"
+      "text": "20. Replace every number with the larger of the number and the matching number in list B20 (Max(n, B[20, p]))"
     },
     {
       "number": 21,
-      "op": "n + x",
-      "operand": "2",
-      "hold_until_after": 5,
-      "text": "21. Hold this instruction until instruction 5 has executed, then apply it: Replace every number with the number plus 2 (n + 2)"
+      "op": "Mod(n, x)",
+      "operand": "B[21, p]",
+      "hold_until_after": null,
+      "text": "21. Replace every number with the remainder when the number is divided by the matching number in list B21 (Mod(n, B[21, p]))"
     },
     {
       "number": 22,
-      "op": "Gcd(n, x)",
-      "operand": "10",
-      "hold_until_after": 26,
-      "text": "22. Hold this instruction until instruction 26 has executed, then apply it: Replace every number with the greatest common divisor of the number and 10 (Gcd(n, 10))"
+      "op": "floor(n/2 + x/2)",
+      "operand": "Changed[18]",
+      "hold_until_after": null,
+      "text": "22. Replace every number with the average of the number and the count of numbers instruction 18 changed, rounded down (floor(n/2 + Changed[18]/2))"
     },
     {
       "number": 23,
-      "op": "n - x",
-      "operand": "3",
+      "op": "-n + x",
+      "operand": "7",
       "hold_until_after": null,
-      "text": "23. Replace every number with the number minus 3 (n - 3)"
+      "text": "23. Replace every number with 7 minus the number (7 - n)"
     },
     {
       "number": 24,
-      "op": "n*x",
-      "operand": "B[24, p]",
+      "op": "Mod(n, x)",
+      "operand": "List[9]",
       "hold_until_after": null,
-      "text": "24. Replace every number with the number times the matching number in list B24 (n*B[24, p])"
+      "text": "24. Replace every number with the remainder when the number is divided by the number at position 9 (Mod(n, List[9]))"
     },
     {
       "number": 25,
-      "op": "Abs(n - x)",
-      "operand": "Changed[37]",
+      "op": "n*x",
+      "operand": "p",
       "hold_until_after": null,
-      "text": "25. Replace every number with the absolute difference between the number and the count of numbers instruction 37 changed (Abs(n - Changed[37]))"
+      "text": "25. Replace every number with the number times its own position (n*p)"
     },
     {
       "number": 26,
-      "op": "floor(n/x)",
-      "operand": "Changed[16]",
+      "op": "Max(n, x)",
+      "operand": "B[26, 2]",
       "hold_until_after": null,
-      "text": "26. Replace every number with the number divided by the count of numbers instruction 16 changed, rounded down (floor(n/Changed[16]))"
+      "text": "26. Replace every number with the larger of the number and the number at position 2 in list B26 (Max(n, B[26, 2]))"
     },
     {
       "number": 27,
-      "op": "floor(n/x)",
-      "operand": "Changed[17]",
+      "op": "Min(n, x)",
+      "operand": "Changed[19]",
       "hold_until_after": null,
-      "text": "27. Replace every number with the number divided by the count of numbers instruction 17 changed, rounded down (floor(n/Changed[17]))"
+      "text": "27. Replace every number with the smaller of the number and the count of numbers instruction 19 changed (Min(n, Changed[19]))"
     },
     {
       "number": 28,
-      "op": "floor(n/2 + x/2)",
-      "operand": "2",
-      "hold_until_after": 9,
-      "text": "28. Hold this instruction until instruction 9 has executed, then apply it: Replace every number with the average of the number and 2, rounded down (floor(n/2) + 1)"
+      "op": "Min(n, x)",
+      "operand": "B[28, 0]",
+      "hold_until_after": null,
+      "text": "28. Replace every number with the smaller of the number and the number at position 0 in list B28 (Min(n, B[28, 0]))"
     },
     {
       "number": 29,
-      "op": "Min(n, x)",
-      "operand": "6",
-      "hold_until_after": 39,
-      "text": "29. Hold this instruction until instruction 39 has executed, then apply it: Replace every number with the smaller of the number and 6 (Min(6, n))"
+      "op": "floor(n/2 + x/2)",
+      "operand": "List[3]",
+      "hold_until_after": null,
+      "text": "29. Replace every number with the average of the number and the number at position 3, rounded down (floor(n/2 + List[3]/2))"
     },
     {
       "number": 30,
-      "op": "n - x",
-      "operand": "B[30, p]",
+      "op": "floor(n/2 + x/2)",
+      "operand": "6",
       "hold_until_after": null,
-      "text": "30. Replace every number with the number minus the matching number in list B30 (n - B[30, p])"
+      "text": "30. Replace every number with the average of the number and 6, rounded down (floor(n/2) + 3)"
     },
     {
       "number": 31,
-      "op": "Gcd(n, x)",
-      "operand": "B[31, p]",
+      "op": "Lcm(n, x)",
+      "operand": "B[31, 3]",
       "hold_until_after": null,
-      "text": "31. Replace every number with the greatest common divisor of the number and the matching number in list B31 (Gcd(n, B[31, p]))"
+      "text": "31. Replace every number with the least common multiple of the number and the number at position 3 in list B31 (Lcm(n, B[31, 3]))"
     },
     {
       "number": 32,
-      "op": "Max(n, x)",
-      "operand": "B[32, p]",
+      "op": "n + x",
+      "operand": "9",
       "hold_until_after": null,
-      "text": "32. Replace every number with the larger of the number and the matching number in list B32 (Max(n, B[32, p]))"
+      "text": "32. Replace every number with the number plus 9 (n + 9)"
     },
     {
       "number": 33,
-      "op": "n*x",
-      "operand": "4",
+      "op": "floor(x/n)",
+      "operand": "10",
       "hold_until_after": null,
-      "text": "33. Replace every number with the number times 4 (4*n)"
+      "text": "33. Replace every number with 10 divided by the number, rounded down (floor(10/n))"
     },
     {
       "number": 34,
-      "op": "floor(n/x)",
-      "operand": "List[4]",
-      "hold_until_after": null,
-      "text": "34. Replace every number with the number divided by the number at position 4, rounded down (floor(n/List[4]))"
+      "op": "Max(n, x)",
+      "operand": "List[0]",
+      "hold_until_after": 14,
+      "text": "34. Hold this instruction until instruction 14 has executed, then apply it: Replace every number with the larger of the number and the number at position 0 (Max(n, List[0]))"
     },
     {
       "number": 35,
       "op": "Mod(n, x)",
-      "operand": "B[35, p]",
-      "hold_until_after": 13,
-      "text": "35. Hold this instruction until instruction 13 has executed, then apply it: Replace every number with the remainder when the number is divided by the matching number in list B35 (Mod(n, B[35, p]))"
+      "operand": "List[6]",
+      "hold_until_after": 16,
+      "text": "35. Hold this instruction until instruction 16 has executed, then apply it: Replace every number with the remainder when the number is divided by the number at position 6 (Mod(n, List[6]))"
     },
     {
       "number": 36,
-      "op": "Max(n, x)",
+      "op": "floor(n/2 + x/2)",
       "operand": "B[36, p]",
-      "hold_until_after": null,
-      "text": "36. Replace every number with the larger of the number and the matching number in list B36 (Max(n, B[36, p]))"
+      "hold_until_after": 24,
+      "text": "36. Hold this instruction until instruction 24 has executed, then apply it: Replace every number with the average of the number and the matching number in list B36, rounded down (floor(n/2 + B[36, p]/2))"
     },
     {
       "number": 37,
-      "op": "floor(n/2 + x/2)",
-      "operand": "Changed[21]",
-      "hold_until_after": 7,
-      "text": "37. Hold this instruction until instruction 7 has executed, then apply it: Replace every number with the average of the number and the count of numbers instruction 21 changed, rounded down (floor(n/2 + Changed[21]/2))"
+      "op": "x",
+      "operand": "p",
+      "hold_until_after": null,
+      "text": "37. Replace every number with its own position (p)"
     },
     {
       "number": 38,
-      "op": "n - x",
-      "operand": "p",
+      "op": "Mod(n, x)",
+      "operand": "B[38, 8]",
       "hold_until_after": null,
-      "text": "38. Replace every number with the number minus its own position (n - p)"
+      "text": "38. Replace every number with the remainder when the number is divided by the number at position 8 in list B38 (Mod(n, B[38, 8]))"
     },
     {
       "number": 39,
-      "op": "Min(n, x)",
-      "operand": "4",
-      "hold_until_after": 38,
-      "text": "39. Hold this instruction until instruction 38 has executed, then apply it: Replace every number with the smaller of the number and 4 (Min(4, n))"
+      "op": "floor(n/2 + x/2)",
+      "operand": "List[4]",
+      "hold_until_after": 19,
+      "text": "39. Hold this instruction until instruction 19 has executed, then apply it: Replace every number with the average of the number and the number at position 4, rounded down (floor(n/2 + List[4]/2))"
     },
     {
       "number": 40,
-      "op": "Abs(n - x)",
-      "operand": "List[2]",
+      "op": "Max(n, x)",
+      "operand": "B[40, p]",
       "hold_until_after": null,
-      "text": "40. Replace every number with the absolute difference between the number and the number at position 2 (Abs(n - List[2]))"
+      "text": "40. Replace every number with the larger of the number and the matching number in list B40 (Max(n, B[40, p]))"
     }
   ],
   "dag": {
     "exec_edges": [
       [
-        21,
-        4
+        11,
+        1
       ],
       [
-        8,
+        28,
         5
       ],
       [
-        30,
-        7
-      ],
-      [
-        24,
+        21,
         9
       ],
       [
-        32,
-        11
-      ],
-      [
-        5,
+        14,
         12
       ],
       [
-        35,
-        15
+        4,
+        14
       ],
       [
-        12,
-        16
+        33,
+        14
       ],
       [
-        20,
+        28,
         19
       ],
       [
-        5,
-        21
-      ],
-      [
-        26,
+        18,
         22
       ],
       [
-        37,
-        25
-      ],
-      [
-        16,
-        26
-      ],
-      [
-        17,
+        19,
         27
       ],
       [
-        9,
-        28
+        14,
+        34
       ],
       [
-        39,
-        29
-      ],
-      [
-        13,
+        16,
         35
       ],
       [
-        7,
-        37
+        24,
+        36
       ],
       [
-        21,
-        37
-      ],
-      [
-        38,
+        19,
         39
       ]
     ],
     "planned_order": [
-      1,
       2,
       3,
+      4,
       6,
+      7,
       8,
-      5,
       10,
-      12,
+      11,
+      1,
       13,
-      14,
+      15,
       16,
       17,
       18,
       20,
-      19,
       21,
-      4,
+      9,
+      22,
       23,
       24,
-      9,
+      25,
       26,
-      22,
-      27,
       28,
+      5,
+      19,
+      27,
+      29,
       30,
-      7,
       31,
       32,
-      11,
       33,
+      14,
+      12,
       34,
       35,
-      15,
       36,
       37,
-      25,
       38,
       39,
-      29,
       40
     ]
   },
-  "generation_attempts": 19
+  "generation_attempts": 38
 }

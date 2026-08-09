@@ -3,6 +3,10 @@
 The operand of an operation is itself a SymPy expression built from:
 - a literal:              Integer(4)
 - a list reference:       At(4) == List[4] — the value at 0-indexed position 4
+                          of the CURRENT list (execution time)
+- an original reference:  Start[4] — the value the ORIGINAL list held at
+                          position 4; Start[P] — the element's own original
+                          value (frozen, never affected by instructions)
 - an effect reference:    Changed(j) — see below
 - the element's position: P (prints `p`) — each element's own 0-indexed index
 - a companion reference:  B[k, P] — the matching number in instruction k's
@@ -29,6 +33,7 @@ import sympy as sp
 
 L = sp.IndexedBase("List", integer=True)
 B = sp.IndexedBase("B", integer=True)
+START = sp.IndexedBase("Start", integer=True)
 P = sp.Symbol("p", integer=True, nonnegative=True)
 
 
@@ -63,6 +68,10 @@ def _is_list_ref(e) -> bool:
 
 def _is_companion_ref(e) -> bool:
     return isinstance(e, sp.Indexed) and e.base == B
+
+
+def _is_start_ref(e) -> bool:
+    return isinstance(e, sp.Indexed) and e.base == START
 
 
 def is_elementwise(operand) -> bool:
@@ -118,7 +127,7 @@ def _companion_lookup(rows: list[list[int]]):
     return lookup
 
 
-def _collapse(expr, seq, effects, companions) -> int:
+def _collapse(expr, seq, effects, companions, original) -> int:
     """Fully resolve an expression with concrete indices to an integer."""
 
     def lookup_effect(ref: sp.Indexed) -> sp.Integer:
@@ -128,6 +137,10 @@ def _collapse(expr, seq, effects, companions) -> int:
         return sp.Integer(effects[j])
 
     result = expr.replace(_is_list_ref, _indexed_lookup(seq, "List"))
+    if any(_is_start_ref(e) for e in result.atoms(sp.Indexed)):
+        if original is None:
+            raise ValueError(f"operand {expr} references Start but no original list given")
+        result = result.replace(_is_start_ref, _indexed_lookup(original, "Start"))
     if any(_is_companion_ref(e) for e in result.atoms(sp.Indexed)):
         if companions is None:
             raise ValueError(f"operand {expr} references B but no companion rows exist")
@@ -143,12 +156,13 @@ def resolve(
     seq: list[int],
     effects: dict[int, int] | None = None,
     companions: list[list[int]] | None = None,
+    original: list[int] | None = None,
 ) -> int:
     """Collapse a SCALAR operand to one integer against the current list."""
     expr = sp.sympify(operand)
     if is_elementwise(expr):
         raise ValueError(f"operand {expr} is per-element — use resolve_elementwise")
-    return _collapse(expr, seq, effects, companions)
+    return _collapse(expr, seq, effects, companions, original)
 
 
 def resolve_elementwise(
@@ -156,16 +170,20 @@ def resolve_elementwise(
     seq: list[int],
     effects: dict[int, int] | None = None,
     companions: list[list[int]] | None = None,
+    original: list[int] | None = None,
 ) -> list[int]:
     """Resolve an operand to one integer PER POSITION, in one snapshot.
 
     Scalar operands broadcast their single value; per-element operands
-    substitute each position into P and read B against the companion rows.
+    substitute each position into P and read frozen sources per element.
     """
     expr = sp.sympify(operand)
     if not is_elementwise(expr):
-        return [_collapse(expr, seq, effects, companions)] * len(seq)
-    return [_collapse(expr.subs(P, i), seq, effects, companions) for i in range(len(seq))]
+        return [_collapse(expr, seq, effects, companions, original)] * len(seq)
+    return [
+        _collapse(expr.subs(P, i), seq, effects, companions, original)
+        for i in range(len(seq))
+    ]
 
 
 def resolvable(
@@ -173,9 +191,10 @@ def resolvable(
     seq: list[int],
     effects: dict[int, int] | None = None,
     companions: list[list[int]] | None = None,
+    original: list[int] | None = None,
 ) -> bool:
     try:
-        resolve(operand, seq, effects, companions)
+        resolve(operand, seq, effects, companions, original)
         return True
     except (ValueError, ZeroDivisionError):
         return False
@@ -195,6 +214,11 @@ def phrase(operand) -> str:
         return f"the count of numbers instruction {expr.indices[0]} changed"
     if expr == P:
         return "its own position"
+    if _is_start_ref(expr):
+        idx = expr.indices[0]
+        if idx == P:
+            return "its original number"
+        return f"the original number at position {idx}"
     if _is_companion_ref(expr) and len(expr.indices) == 2:
         k, pos = expr.indices
         if pos == P:
