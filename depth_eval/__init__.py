@@ -1,3 +1,4 @@
+from .configs import list_configs, load_config
 from .dag import Edge, build_edges, schedule
 from .generator import GeneratorConfig, Question, generate
 from .instructions import Instruction, Step, execute, render_question
@@ -11,6 +12,8 @@ __all__ = [
     "GeneratorConfig",
     "Question",
     "generate",
+    "load_config",
+    "list_configs",
     "NUMBER_OPS",
     "NumberOp",
     "At",

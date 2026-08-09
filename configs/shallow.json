@@ -1,0 +1,21 @@
+{
+  "steps": 5,
+  "length": 10,
+  "low": 0,
+  "high": 50,
+  "literal_low": 1,
+  "literal_high": 10,
+  "operand_weights": {
+    "literal": 60,
+    "at": 15,
+    "at_start": 5,
+    "at_companion": 5,
+    "changed": 5,
+    "matching": 5,
+    "position": 5
+  },
+  "hold_chance": 0.1,
+  "include_powers": false,
+  "min_distinct_fraction": 0.3,
+  "max_attempts": 200
+}
