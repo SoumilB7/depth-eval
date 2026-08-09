@@ -29,25 +29,33 @@ def At(position: int) -> sp.Indexed:
     return L[position]
 
 
-class Changed(sp.Function):
+_CHANGED = sp.IndexedBase("Changed", integer=True)
+
+
+def Changed(j: int) -> sp.Indexed:
     """The count of positions whose value changed when instruction j last
-    executed (j is a 1-based instruction listing number).
+    executed (j is a 1-based instruction listing number). Prints Changed[j].
 
     An EFFECT reference: resolving it requires instruction j to have already
     executed, so it creates an exec dependency — the executor auto-holds the
     referencing instruction until j has run, past or future. With repeats,
-    "last executed" means the most recent execution.
+    "last executed" means the most recent execution. Like At/L[p], it is
+    native SymPy indexing, so it composes into every op (Max/Min included).
     """
+    return _CHANGED[j]
 
-    def _eval_is_integer(self):
-        return True
+
+def _is_effect_ref(e) -> bool:
+    return isinstance(e, sp.Indexed) and e.base == _CHANGED
 
 
 def effect_refs(operand) -> set[int]:
     """Instruction numbers whose effect the operand references."""
     refs = set()
-    for e in sp.sympify(operand).atoms(Changed):
-        j = e.args[0]
+    for e in sp.sympify(operand).atoms(sp.Indexed):
+        if not _is_effect_ref(e):
+            continue
+        j = e.indices[0]
         if not j.is_Integer:
             raise ValueError(f"non-integer instruction reference in {operand}")
         refs.add(int(j))
@@ -71,14 +79,14 @@ def resolve(operand, seq: list[int], effects: dict[int, int] | None = None) -> i
             raise ValueError(f"position {i} out of range 0..{len(seq) - 1}")
         return sp.Integer(seq[i])
 
-    def lookup_effect(ref: Changed) -> sp.Integer:
-        j = int(ref.args[0])
+    def lookup_effect(ref: sp.Indexed) -> sp.Integer:
+        j = int(ref.indices[0])
         if effects is None or j not in effects:
             raise ValueError(f"instruction {j} has not executed — {expr} unresolvable")
         return sp.Integer(effects[j])
 
     result = expr.replace(lambda e: isinstance(e, sp.Indexed) and e.base == L, lookup)
-    result = result.replace(lambda e: isinstance(e, Changed), lookup_effect)
+    result = result.replace(_is_effect_ref, lookup_effect)
     if result.is_Integer is not True:
         raise ValueError(f"operand {expr} did not resolve to an integer")
     return int(result)
@@ -101,6 +109,6 @@ def phrase(operand) -> str:
     expr = sp.sympify(operand)
     if isinstance(expr, sp.Indexed) and expr.base == L:
         return f"the number at position {expr.indices[0]}"
-    if isinstance(expr, Changed):
-        return f"the count of numbers instruction {expr.args[0]} changed"
+    if _is_effect_ref(expr):
+        return f"the count of numbers instruction {expr.indices[0]} changed"
     return str(expr)
