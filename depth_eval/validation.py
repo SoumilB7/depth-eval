@@ -12,8 +12,13 @@ Static issues (structure alone):
   infinite-loop state; nothing in the cycle can ever run).
 - blocked              : depends, possibly transitively, on a broken
   instruction, so it can never run either.
-- position_out_of_range: At(p) outside the list.
-- malformed_operand    : non-integer positions or instruction references.
+- position_out_of_range: At(p) outside the list, or B[i] outside the
+  companion.
+- companion_required   : operand references B but the question has no
+  companion list.
+- malformed_operand    : non-integer positions or instruction references
+  (indices built from the position symbol P are fine — they resolve
+  per element).
 
 Dynamic issues (need the actual list, found by trial run):
 - undefined_operation  : an op hits an undefined point (division by zero,
@@ -26,7 +31,7 @@ import sympy as sp
 
 from .dag import triggers
 from .instructions import Instruction, execute
-from .ops.operands import L
+from .ops.operands import B, L, P
 
 
 @dataclass(frozen=True)
@@ -36,7 +41,9 @@ class Issue:
     message: str
 
 
-def _static_issues(instructions: list[Instruction], length: int) -> list[Issue]:
+def _static_issues(
+    instructions: list[Instruction], length: int, companion_length: int | None
+) -> list[Issue]:
     k = len(instructions)
     issues: list[Issue] = []
     deps: dict[int, set[int]] = {}   # only structurally sane deps go here
@@ -69,21 +76,38 @@ def _static_issues(instructions: list[Instruction], length: int) -> list[Issue]:
                 deps[i].add(j)
 
         for ref in sp.sympify(ins.operand).atoms(sp.Indexed):
-            if ref.base != L:
+            if ref.base == L:
+                target, size = "the list", length
+            elif ref.base == B:
+                if companion_length is None:
+                    issues.append(
+                        Issue(
+                            "companion_required",
+                            i,
+                            f"instruction {i} references list B, "
+                            "but the question has no companion list",
+                        )
+                    )
+                    broken.add(i)
+                    continue
+                target, size = "list B", companion_length
+            else:
                 continue
             p = ref.indices[0]
+            if p.has(P):
+                continue  # position-dependent index; checked by the trial run
             if not p.is_Integer:
                 issues.append(
                     Issue("malformed_operand", i, f"non-integer position {p} in operand")
                 )
                 broken.add(i)
-            elif not 0 <= int(p) < length:
+            elif not 0 <= int(p) < size:
                 issues.append(
                     Issue(
                         "position_out_of_range",
                         i,
                         f"instruction {i} reads position {p}, "
-                        f"but the list is 0..{length - 1}",
+                        f"but {target} is 0..{size - 1}",
                     )
                 )
                 broken.add(i)
@@ -131,14 +155,20 @@ def _static_issues(instructions: list[Instruction], length: int) -> list[Issue]:
     return issues
 
 
-def validate(instructions: list[Instruction], start: list[int]) -> list[Issue]:
+def validate(
+    instructions: list[Instruction],
+    start: list[int],
+    companion: list[int] | None = None,
+) -> list[Issue]:
     """All issues in a chain, static and dynamic. Empty list == valid."""
-    issues = _static_issues(instructions, len(start))
+    issues = _static_issues(
+        instructions, len(start), None if companion is None else len(companion)
+    )
     if issues:
         return issues  # structure is broken; a trial run would be meaningless
 
     try:
-        execute(instructions, start)
+        execute(instructions, start, companion)
     except (ValueError, ZeroDivisionError) as e:
         number = getattr(e, "instruction", 0)
         issues.append(Issue("undefined_operation", number, str(e)))

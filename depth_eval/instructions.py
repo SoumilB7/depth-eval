@@ -20,7 +20,7 @@ from dataclasses import dataclass
 
 from .dag import schedule
 from .ops.base import NumberOp
-from .ops.operands import resolve
+from .ops.operands import is_elementwise, resolve_elementwise
 
 
 @dataclass(frozen=True)
@@ -49,20 +49,29 @@ class Instruction:
 class Step:
     """One execution event in the trace."""
 
-    instruction: int  # 1-based listing number
-    x: int            # the operand's resolved value at execution time
-    operation: str    # exact operation applied, formula render ("-n - 78")
-    words: str        # exact operation applied, worded ("-78 minus the number")
-    changed: int      # count of positions whose value changed
-    seq: list[int]    # list state after this event
+    instruction: int      # 1-based listing number
+    x: int | None         # resolved operand value; None for per-element operands
+    xs: list[int] | None  # the resolved vector for per-element operands
+    operation: str        # exact operation applied, formula render ("-n - 78")
+    words: str            # exact operation applied, worded ("-78 minus the number")
+    changed: int          # count of positions whose value changed
+    seq: list[int]        # list state after this event
 
 
 def render_question(instructions: list[Instruction]) -> str:
     return "\n".join(ins.render(i) for i, ins in enumerate(instructions, start=1))
 
 
-def execute(instructions: list[Instruction], start: list[int]) -> tuple[list[int], list[Step]]:
-    """Run a chain in its scheduled order. Returns (final list, trace)."""
+def execute(
+    instructions: list[Instruction],
+    start: list[int],
+    companion: list[int] | None = None,
+) -> tuple[list[int], list[Step]]:
+    """Run a chain in its scheduled order. Returns (final list, trace).
+
+    companion is the frozen list B (same seeded generation as the start
+    list); required only when an operand references it.
+    """
     order = schedule(instructions)
     seq = list(start)
     effects: dict[int, int] = {}
@@ -70,9 +79,10 @@ def execute(instructions: list[Instruction], start: list[int]) -> tuple[list[int
 
     for number in order:
         ins = instructions[number - 1]
+        per_element = is_elementwise(ins.operand)
         try:
-            x = resolve(ins.operand, seq, effects)
-            new = [ins.op.apply(v, x) for v in seq]
+            xs = resolve_elementwise(ins.operand, seq, effects, companion)
+            new = [ins.op.apply(v, xv) for v, xv in zip(seq, xs)]
         except ValueError as e:
             error = ValueError(f"instruction {number}: {e}")
             error.instruction = number
@@ -80,6 +90,12 @@ def execute(instructions: list[Instruction], start: list[int]) -> tuple[list[int
         changed = sum(1 for old, now in zip(seq, new) if old != now)
         seq = new
         effects[number] = changed
-        trace.append(Step(number, x, ins.op.formula(x), ins.op.wording(x), changed, list(seq)))
+        if per_element:
+            step = Step(number, None, xs, ins.op.formula(ins.operand),
+                        ins.op.wording(ins.operand), changed, list(seq))
+        else:
+            step = Step(number, xs[0], None, ins.op.formula(xs[0]),
+                        ins.op.wording(xs[0]), changed, list(seq))
+        trace.append(step)
 
     return seq, trace
