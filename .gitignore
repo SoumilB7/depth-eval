@@ -9,6 +9,7 @@ venv/
 # Env / secrets
 .env
 .env.*
+!.env.example
 
 # Tooling caches
 .pytest_cache/
@@ -24,3 +25,6 @@ scratch/
 
 # Local test runs — never committed
 testruns/
+
+# Harness run artifacts — never committed
+recordings/
