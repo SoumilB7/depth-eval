@@ -80,7 +80,7 @@ class NumberOp:
 
     def apply(self, nv: int, xv: int) -> int:
         # Hard boundary: ops only ever receive plain integers. References
-        # (At/L[p]) are resolved by the executor BEFORE anything reaches here.
+        # (At/List[p]) are resolved by the executor BEFORE anything reaches here.
         if type(nv) is not int or type(xv) is not int:
             raise TypeError(
                 f"NumberOp.apply takes plain ints, got n={nv!r}, x={xv!r} — "

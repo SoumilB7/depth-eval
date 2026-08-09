@@ -2,12 +2,12 @@
 
 The operand of an operation is itself a SymPy expression:
 - a literal:            Integer(4)
-- a list reference:     At(4) == L[4] — the value at 0-indexed position 4
+- a list reference:     At(4) == List[4] — the value at 0-indexed position 4
 - any composition:      At(4) + 1, Abs(At(2) - At(9)), ...
 
-The list is the SymPy IndexedBase `L`; At(p) is L[p], SymPy's native
+The list is the SymPy IndexedBase printed `List`; At(p) is List[p], SymPy's native
 indexing object, so references compose into every expression (Max, Mod,
-floor, ...) and print as L[4].
+floor, ...) and print as List[4].
 
 `resolve` is the main operator here: it collapses an operand expression to a
 concrete integer against the CURRENT list (the state at the moment the
@@ -21,7 +21,7 @@ operand unresolvable (the question generator must avoid emitting it).
 
 import sympy as sp
 
-L = sp.IndexedBase("L", integer=True)
+L = sp.IndexedBase("List", integer=True)
 
 
 def At(position: int) -> sp.Indexed:
@@ -39,7 +39,7 @@ def Changed(j: int) -> sp.Indexed:
     An EFFECT reference: resolving it requires instruction j to have already
     executed, so it creates an exec dependency — the executor auto-holds the
     referencing instruction until j has run, past or future. With repeats,
-    "last executed" means the most recent execution. Like At/L[p], it is
+    "last executed" means the most recent execution. Like At/List[p], it is
     native SymPy indexing, so it composes into every op (Max/Min included).
     """
     return _CHANGED[j]
