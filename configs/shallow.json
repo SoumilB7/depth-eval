@@ -3,20 +3,26 @@
   "high": 50,
   "literal_low": 1,
   "literal_high": 10,
-  "operand_weights": {
+  "category_weights": {
+    "direct": 90,
+    "relative": 10
+  },
+  "direct_weights": {
     "literal": 60,
-    "at": 15,
-    "at_start": 5,
-    "at_companion": 5,
-    "changed": 5,
-    "matching": 5,
-    "position": 5
+    "live": 20,
+    "origin": 7,
+    "companion": 7,
+    "positional": 6
+  },
+  "relative_weights": {
+    "effect": 100,
+    "definition": 0,
+    "execution": 0,
+    "alter": 0,
+    "erase": 0
   },
   "hold_chance": 0.1,
   "include_powers": false,
   "min_distinct_fraction": 0.3,
-  "max_attempts": 200,
-  "meta_weights": {
-    "data": 100
-  }
+  "max_attempts": 200
 }

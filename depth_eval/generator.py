@@ -7,9 +7,15 @@ Two seeds, two responsibilities, never mixed:
                       fixed offset (draws (k*length)..((k+1)*length - 1)).
                       Rows are pre-addressed: row k is identical whether or
                       not any question uses it — exact redo-ability.
-- instruction_seed -> the QUESTION. Op choices, operand kinds (drawn by
-                      weighted frequency), the numbers inside instructions,
-                      and holds all come from this stream and only this one.
+- instruction_seed -> the QUESTION. Every draw comes from this stream and
+                      only this one, in this order per instruction slot:
+                        1. CATEGORY  direct | relative   (the nomenclature)
+                        2. KIND      within the category (weighted)
+                        3. variant   e.g. fixed vs matching position (uniform)
+                        4. numbers   op, positions, literals, targets
+                        5. hold      one gate, then a target
+                      Generation v3: the forced nomenclature IS the first
+                      probability distribution of instruction creation.
 
 Same (list_seed, instruction_seed, config) -> the same Question, always.
 Candidate chains that fail validation or the anti-degeneracy floor are
@@ -41,25 +47,31 @@ class GeneratorConfig:
     high: int = 50
     literal_low: int = 1
     literal_high: int = 10
-    # relative frequency of each operand kind
-    operand_weights: dict[str, int] = field(
+    # DRAW 1 — the nomenclature split
+    category_weights: dict[str, int] = field(
+        default_factory=lambda: {"direct": 75, "relative": 25}
+    )
+    # DRAW 2a — kind within DIRECT (what the line reads)
+    direct_weights: dict[str, int] = field(
         default_factory=lambda: {
-            "literal": 30,     # a plain number
-            "at": 15,          # List[i] — current value at a fixed position
-            "at_start": 10,    # Start[i] — original value at a fixed position
-            "at_companion": 10,  # B[k, i] — fixed spot in own companion row
-            "changed": 15,     # Changed[j] — effect reference (auto-holds)
-            "matching": 10,    # B[k, p] — own companion row, matching position
-            "position": 10,    # p — the element's own position
+            "literal": 40,     # a plain number
+            "live": 20,        # List[i]  — current value at a fixed position
+            "origin": 15,      # Start[i] or Start[p]  (variant: uniform)
+            "companion": 15,   # B[k, i]  or B[k, p]   (variant: uniform)
+            "positional": 10,  # p — the element's own position
+        }
+    )
+    # DRAW 2b — kind within RELATIVE (how the line couples to another)
+    relative_weights: dict[str, int] = field(
+        default_factory=lambda: {
+            "effect": 100,     # Changed[j] operand — consumes j's effect
+            "definition": 0,   # mirror | negate   (variant: uniform)
+            "execution": 0,    # unwind
+            "alter": 0,        # amplify | flip | rewrite (variant: uniform)
+            "erase": 0,        # cancel
         }
     )
     hold_chance: float = 0.25
-    # relative frequency of meta verbs vs ordinary data instructions.
-    # {"data": 100} alone means no metas AND changes no draw order — old
-    # states keep producing identical questions.
-    meta_weights: dict[str, int] = field(
-        default_factory=lambda: {"data": 100}
-    )
     include_powers: bool = False  # n**x / x**n explode under chaining
     # the output list must keep at least this fraction of distinct values
     min_distinct_fraction: float = 0.3
@@ -84,24 +96,28 @@ class Question:
     attempts: int  # candidates consumed until one passed all gates
 
 
-def _random_operand(
-    rng: random.Random, config: GeneratorConfig, steps: int, length: int, number: int
-):
-    kinds = list(config.operand_weights)
-    kind = rng.choices(kinds, weights=list(config.operand_weights.values()))[0]
-    if kind == "at":
+VERBS_BY_KIND = {
+    "definition": ["mirror", "negate"],
+    "execution": ["unwind"],
+    "alter": ["amplify", "flip", "rewrite"],
+    "erase": ["cancel"],
+}
+
+
+def _weighted(rng: random.Random, weights: dict[str, int]) -> str:
+    live = {k: w for k, w in weights.items() if w > 0}
+    return rng.choices(list(live), weights=list(live.values()))[0]
+
+
+def _direct_operand(rng: random.Random, config: GeneratorConfig, length: int, number: int):
+    kind = _weighted(rng, config.direct_weights)
+    if kind == "live":
         return At(rng.randint(0, length - 1))
-    if kind == "at_start":
-        return START[rng.randint(0, length - 1)]
-    if kind == "at_companion":
-        return B[number, rng.randint(0, length - 1)]
-    if kind == "changed":
-        others = [j for j in range(1, steps + 1) if j != number]
-        if others:
-            return Changed(rng.choice(others))
-    if kind == "matching":
-        return B[number, P]
-    if kind == "position":
+    if kind == "origin":
+        return START[P] if rng.random() < 0.5 else START[rng.randint(0, length - 1)]
+    if kind == "companion":
+        return B[number, P] if rng.random() < 0.5 else B[number, rng.randint(0, length - 1)]
+    if kind == "positional":
         return P
     return rng.randint(config.literal_low, config.literal_high)
 
@@ -110,28 +126,28 @@ def _random_instruction(
     rng: random.Random, config: GeneratorConfig, steps: int, length: int,
     pool: list[str], number: int
 ):
-    meta_kinds = {k: w for k, w in config.meta_weights.items() if w > 0}
     others = [j for j in range(1, steps + 1) if j != number]
-    kind = "data"
-    if others and set(meta_kinds) != {"data"}:
-        kind = rng.choices(list(meta_kinds), weights=list(meta_kinds.values()))[0]
-    hold = None
-    if kind == "data":
-        op = NUMBER_OPS[rng.choice(pool)]
-        operand = _random_operand(rng, config, steps, length, number)
+    # DRAW 1: the nomenclature. A lone instruction has nothing to couple to.
+    category = _weighted(rng, config.category_weights) if others else "direct"
+
+    def hold():
         if others and rng.random() < config.hold_chance:
-            hold = rng.choice(others)
-        return Instruction(op, operand, hold_until_after=hold)
-    verb = META_VERBS[kind]
+            return rng.choice(others)
+        return None
+
+    if category == "direct":
+        op = NUMBER_OPS[rng.choice(pool)]
+        operand = _direct_operand(rng, config, length, number)
+        return Instruction(op, operand, hold_until_after=hold())
+
+    kind = _weighted(rng, config.relative_weights)
+    if kind == "effect":
+        op = NUMBER_OPS[rng.choice(pool)]
+        return Instruction(op, Changed(rng.choice(others)), hold_until_after=hold())
+    verb = META_VERBS[rng.choice(VERBS_BY_KIND[kind])]
     target = rng.choice(others)
-    operand = (
-        _random_operand(rng, config, steps, length, number)
-        if verb.takes_operand
-        else None
-    )
-    if others and rng.random() < config.hold_chance:
-        hold = rng.choice(others)
-    return MetaInstruction(verb, target, operand=operand, hold_until_after=hold)
+    operand = _direct_operand(rng, config, length, number) if verb.takes_operand else None
+    return MetaInstruction(verb, target, operand=operand, hold_until_after=hold())
 
 
 def _random_chain(

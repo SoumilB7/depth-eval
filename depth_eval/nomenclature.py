@@ -11,8 +11,9 @@ output. List[0] is direct.
       live         List[i]            current list, read at execution
       origin       Start[i], Start[p]
       companion    B[k, i], B[k, p]
-      positional   p
-      composite    any mix of the above
+      positional   p                  (bare p only; p inside an index just
+                                       selects the matching element)
+      composite    a mix of the above sources (List[1] + B[2, 0])
     RELATIVE
       consumes — uses another instruction's output as input
         effect       Changed[j]
@@ -75,7 +76,11 @@ def _data_kind(operand) -> tuple[str, str | None, str]:
         sources.add("origin")
     if any(r.base == B for r in refs):
         sources.add("companion")
-    if expr.has(P):
+    # p counts as positional only when it stands on its own — inside an
+    # index (Start[p], B[k, p]) it just selects the matching element of
+    # that source, so the source is what the instruction reads.
+    bare = expr.replace(lambda e: isinstance(e, sp.Indexed), lambda e: sp.Integer(0))
+    if bare.has(P):
         sources.add("positional")
     if not sources:
         return "direct", None, "literal"
