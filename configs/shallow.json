@@ -16,5 +16,8 @@
   "hold_chance": 0.1,
   "include_powers": false,
   "min_distinct_fraction": 0.3,
-  "max_attempts": 200
+  "max_attempts": 200,
+  "meta_weights": {
+    "data": 100
+  }
 }

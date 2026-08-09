@@ -2,11 +2,14 @@
 
 Nodes are the listed instructions (1-based). Two edge kinds exist:
 
-- "exec"  j => i : i cannot RUN until j has run. Sources: explicit holds
-  and effect references (Changed(j) in i's operand — auto-hold, no explicit
-  hold clause needed, past or future).
-- "def"   j -> i : i cannot be INTERPRETED without j's text. Reserved for
-  the meta-op vocabulary (not populated yet).
+- "exec"  j => i : i cannot RUN until j has run. Sources: explicit holds,
+  effect references (Changed(j) in an operand), undo verbs (unwind needs
+  the target's execution record), and EDIT verbs — reversed: the edit
+  creates exec editor => target, so the TARGET parks until its editor has
+  run (its definition isn't final before that).
+- "def"   j -> i : i cannot be INTERPRETED without j's listed text — read
+  verbs (mirror/negate) and edit verbs create these. Def edges never
+  reorder anything; interpretation always uses the static listing.
 
 Scheduling walks the listing in order; an instruction whose exec
 dependencies aren't all satisfied parks and is released immediately after
@@ -21,6 +24,7 @@ of range) raise; the question generator must never emit them.
 
 from dataclasses import dataclass
 
+from .meta.base import MetaInstruction
 from .ops.operands import effect_refs
 
 
@@ -31,30 +35,46 @@ class Edge:
     dst: int
 
 
-def triggers(instruction) -> set[int]:
-    """Instruction numbers that must have executed before this one runs."""
-    refs = set(effect_refs(instruction.operand))
+def own_triggers(instruction) -> set[int]:
+    """Exec dependencies an instruction declares for ITSELF."""
+    refs: set[int] = set()
+    if getattr(instruction, "operand", None) is not None:
+        refs |= effect_refs(instruction.operand)
     if instruction.hold_until_after is not None:
         refs.add(instruction.hold_until_after)
+    if isinstance(instruction, MetaInstruction) and instruction.verb.klass == "undo":
+        refs.add(instruction.target)
     return refs
 
 
+def chain_triggers(instructions) -> dict[int, set[int]]:
+    """All exec dependencies, including edit edges imposed ON targets."""
+    triggers = {n: own_triggers(ins) for n, ins in enumerate(instructions, start=1)}
+    for n, ins in enumerate(instructions, start=1):
+        if isinstance(ins, MetaInstruction) and ins.verb.klass == "edit":
+            if 1 <= ins.target <= len(instructions) and ins.target != n:
+                triggers[ins.target].add(n)  # target waits for its editor
+    return triggers
+
+
 def build_edges(instructions) -> list[Edge]:
-    return [
+    edges = [
         Edge("exec", src, dst)
-        for dst, ins in enumerate(instructions, start=1)
-        for src in sorted(triggers(ins))
+        for dst, refs in chain_triggers(instructions).items()
+        for src in sorted(refs)
     ]
+    for n, ins in enumerate(instructions, start=1):
+        if isinstance(ins, MetaInstruction) and ins.verb.klass in ("read", "edit"):
+            edges.append(Edge("def", ins.target, n))
+    return edges
 
 
 def schedule(instructions) -> list[int]:
     """Execution order for a chain (pass 2). Raises if unschedulable."""
+    triggers = chain_triggers(instructions)
     executed: set[int] = set()
     parked: dict[int, list[int]] = {}
     order: list[int] = []
-
-    def missing(number: int) -> set[int]:
-        return triggers(instructions[number - 1]) - executed
 
     def run(number: int) -> None:
         executed.add(number)
@@ -63,7 +83,7 @@ def schedule(instructions) -> list[int]:
             attempt(waiting)
 
     def attempt(number: int) -> None:
-        gaps = missing(number)
+        gaps = triggers[number] - executed
         if gaps:
             parked.setdefault(min(gaps), []).append(number)
         else:

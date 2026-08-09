@@ -21,6 +21,7 @@ import random
 from dataclasses import dataclass, field
 
 from .instructions import Instruction, Step, execute, render_question
+from .meta import META_VERBS, MetaInstruction
 from .ops import NUMBER_OPS, At, B, Changed, P, START
 from .sequence import make_sequences
 from .validation import validate
@@ -52,6 +53,12 @@ class GeneratorConfig:
         }
     )
     hold_chance: float = 0.25
+    # relative frequency of meta verbs vs ordinary data instructions.
+    # {"data": 100} alone means no metas AND changes no draw order — old
+    # states keep producing identical questions.
+    meta_weights: dict[str, int] = field(
+        default_factory=lambda: {"data": 100}
+    )
     include_powers: bool = False  # n**x / x**n explode under chaining
     # the output list must keep at least this fraction of distinct values
     min_distinct_fraction: float = 0.3
@@ -97,16 +104,34 @@ def _random_operand(rng: random.Random, config: GeneratorConfig, steps: int, num
 
 def _random_chain(
     rng: random.Random, config: GeneratorConfig, steps: int, pool: list[str]
-) -> list[Instruction]:
+) -> list:
+    meta_kinds = {k: w for k, w in config.meta_weights.items() if w > 0}
     chain = []
     for number in range(1, steps + 1):
-        op = NUMBER_OPS[rng.choice(pool)]
-        operand = _random_operand(rng, config, steps, number)
-        hold = None
         others = [j for j in range(1, steps + 1) if j != number]
-        if others and rng.random() < config.hold_chance:
-            hold = rng.choice(others)
-        chain.append(Instruction(op, operand, hold_until_after=hold))
+        kind = "data"
+        if others and set(meta_kinds) != {"data"}:
+            kind = rng.choices(list(meta_kinds), weights=list(meta_kinds.values()))[0]
+        hold = None
+        if kind == "data":
+            op = NUMBER_OPS[rng.choice(pool)]
+            operand = _random_operand(rng, config, steps, number)
+            if others and rng.random() < config.hold_chance:
+                hold = rng.choice(others)
+            chain.append(Instruction(op, operand, hold_until_after=hold))
+        else:
+            verb = META_VERBS[kind]
+            target = rng.choice(others)
+            operand = (
+                _random_operand(rng, config, steps, number)
+                if verb.takes_operand
+                else None
+            )
+            if others and rng.random() < config.hold_chance:
+                hold = rng.choice(others)
+            chain.append(
+                MetaInstruction(verb, target, operand=operand, hold_until_after=hold)
+            )
     return chain
 
 

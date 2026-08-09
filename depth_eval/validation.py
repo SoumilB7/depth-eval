@@ -5,32 +5,36 @@ must call validate() and re-roll anything that reports issues, so broken
 states never reach a question.
 
 Static issues (structure alone):
-- trigger_out_of_range : hold/effect ref points outside 1..k — e.g. the
-  second-last instruction saying "after instruction i+4".
-- self_reference       : an instruction waiting on itself.
-- cycle                : circular dependencies (mutual waits — the
-  infinite-loop state; nothing in the cycle can ever run).
+- trigger_out_of_range : hold/effect/meta ref points outside 1..k — e.g.
+  the second-last instruction saying "after instruction i+4".
+- self_reference       : an instruction waiting on, or targeting, itself.
+- cycle                : circular dependencies (mutual waits, or edits that
+  circle — the infinite-loop state; nothing in the cycle can ever run).
 - blocked              : depends, possibly transitively, on a broken
   instruction, so it can never run either.
-- position_out_of_range: At(p) outside the list, a companion row outside
-  1..steps, or a companion position outside the row.
+- position_out_of_range: At(p)/Start(p) outside the list, a companion row
+  outside 1..steps, or a companion position outside the row.
 - companion_required   : operand references B but the question has no
   companion rows.
-- malformed_operand    : non-integer positions or instruction references
-  (indices built from the position symbol P are fine — they resolve
-  per element).
+- bad_meta_target      : a meta verb aimed at another meta instruction
+  (v1: verbs target data instructions only).
+- not_invertible       : negate/flip/unwind aimed at an op with no inverse
+  (min, mod, floor-divide, ...).
+- malformed_operand    : non-integer positions or instruction references,
+  a rewrite without an operand, or an operand on a verb that takes none.
 
 Dynamic issues (need the actual list, found by trial run):
 - undefined_operation  : an op hits an undefined point (division by zero,
-  negative exponent) or an operand fails to resolve at execution time.
+  inexact unwind, ...) or an operand fails to resolve at execution time.
 """
 
 from dataclasses import dataclass
 
 import sympy as sp
 
-from .dag import triggers
+from .dag import own_triggers
 from .instructions import Instruction, execute
+from .meta.base import MetaInstruction
 from .ops.operands import B, L, P, START
 
 
@@ -41,23 +45,125 @@ class Issue:
     message: str
 
 
+def _operand_issues(i, operand, length, companion_rows):
+    issues = []
+    for ref in sp.sympify(operand).atoms(sp.Indexed):
+        if ref.base == L or ref.base == START:
+            pos = ref.indices[0]
+        elif ref.base == B:
+            if companion_rows is None:
+                issues.append(
+                    Issue(
+                        "companion_required",
+                        i,
+                        f"instruction {i} references list B, "
+                        "but the question has no companion rows",
+                    )
+                )
+                continue
+            if len(ref.indices) != 2:
+                issues.append(
+                    Issue(
+                        "malformed_operand",
+                        i,
+                        f"companion reference {ref} needs B[step, position]",
+                    )
+                )
+                continue
+            row, pos = ref.indices
+            if not row.is_Integer or not 1 <= int(row) <= companion_rows:
+                issues.append(
+                    Issue(
+                        "position_out_of_range",
+                        i,
+                        f"instruction {i} reads companion row {row}, "
+                        f"but rows are 1..{companion_rows}",
+                    )
+                )
+                continue
+        else:
+            continue
+        if pos.has(P):
+            continue  # position-dependent index; checked by the trial run
+        if not pos.is_Integer:
+            issues.append(
+                Issue("malformed_operand", i, f"non-integer position {pos} in operand")
+            )
+        elif not 0 <= int(pos) < length:
+            issues.append(
+                Issue(
+                    "position_out_of_range",
+                    i,
+                    f"instruction {i} reads position {pos}, "
+                    f"but positions are 0..{length - 1}",
+                )
+            )
+    return issues
+
+
+def _meta_issues(i, ins: MetaInstruction, instructions):
+    issues = []
+    k = len(instructions)
+    if ins.target == i:
+        issues.append(Issue("self_reference", i, f"instruction {i} targets itself"))
+    elif not 1 <= ins.target <= k:
+        issues.append(
+            Issue(
+                "trigger_out_of_range",
+                i,
+                f"instruction {i} targets instruction {ins.target}, "
+                f"but the chain is 1..{k}",
+            )
+        )
+    elif isinstance(instructions[ins.target - 1], MetaInstruction):
+        issues.append(
+            Issue(
+                "bad_meta_target",
+                i,
+                f"instruction {i} targets instruction {ins.target}, "
+                "which is itself a meta instruction",
+            )
+        )
+    elif ins.verb.name in ("negate", "flip", "unwind"):
+        target_op = instructions[ins.target - 1].op
+        if target_op.inverse is None:
+            issues.append(
+                Issue(
+                    "not_invertible",
+                    i,
+                    f"instruction {i} wants to {ins.verb.name} {target_op.id}, "
+                    "which has no inverse",
+                )
+            )
+    if ins.verb.takes_operand and ins.operand is None:
+        issues.append(
+            Issue("malformed_operand", i, f"{ins.verb.name} needs an operand")
+        )
+    if not ins.verb.takes_operand and ins.operand is not None:
+        issues.append(
+            Issue("malformed_operand", i, f"{ins.verb.name} takes no operand")
+        )
+    return issues
+
+
 def _static_issues(
-    instructions: list[Instruction], length: int, companion_rows: int | None
+    instructions: list, length: int, companion_rows: int | None
 ) -> list[Issue]:
     k = len(instructions)
     issues: list[Issue] = []
-    deps: dict[int, set[int]] = {}   # only structurally sane deps go here
+    # only structurally sane deps go here; pre-initialized because an edit
+    # verb adds an edge onto its TARGET, which may not be visited yet
+    deps: dict[int, set[int]] = {i: set() for i in range(1, k + 1)}
     broken: set[int] = set()
 
     for i, ins in enumerate(instructions, start=1):
         try:
-            refs = triggers(ins)
+            refs = own_triggers(ins)
         except ValueError as e:
             issues.append(Issue("malformed_operand", i, str(e)))
             broken.add(i)
             continue
 
-        deps[i] = set()
         for j in refs:
             if j == i:
                 issues.append(Issue("self_reference", i, f"instruction {i} waits on itself"))
@@ -75,61 +181,18 @@ def _static_issues(
             else:
                 deps[i].add(j)
 
-        for ref in sp.sympify(ins.operand).atoms(sp.Indexed):
-            if ref.base == L or ref.base == START:
-                pos = ref.indices[0]
-            elif ref.base == B:
-                if companion_rows is None:
-                    issues.append(
-                        Issue(
-                            "companion_required",
-                            i,
-                            f"instruction {i} references list B, "
-                            "but the question has no companion rows",
-                        )
-                    )
-                    broken.add(i)
-                    continue
-                if len(ref.indices) != 2:
-                    issues.append(
-                        Issue(
-                            "malformed_operand",
-                            i,
-                            f"companion reference {ref} needs B[step, position]",
-                        )
-                    )
-                    broken.add(i)
-                    continue
-                row, pos = ref.indices
-                if not row.is_Integer or not 1 <= int(row) <= companion_rows:
-                    issues.append(
-                        Issue(
-                            "position_out_of_range",
-                            i,
-                            f"instruction {i} reads companion row {row}, "
-                            f"but rows are 1..{companion_rows}",
-                        )
-                    )
-                    broken.add(i)
-                    continue
-            else:
-                continue
-            if pos.has(P):
-                continue  # position-dependent index; checked by the trial run
-            if not pos.is_Integer:
-                issues.append(
-                    Issue("malformed_operand", i, f"non-integer position {pos} in operand")
-                )
+        if isinstance(ins, MetaInstruction):
+            meta_found = _meta_issues(i, ins, instructions)
+            issues.extend(meta_found)
+            if meta_found:
                 broken.add(i)
-            elif not 0 <= int(pos) < length:
-                issues.append(
-                    Issue(
-                        "position_out_of_range",
-                        i,
-                        f"instruction {i} reads position {pos}, "
-                        f"but positions are 0..{length - 1}",
-                    )
-                )
+            elif ins.verb.klass == "edit":
+                deps[ins.target].add(i)  # target waits for its editor
+
+        if getattr(ins, "operand", None) is not None:
+            operand_found = _operand_issues(i, ins.operand, length, companion_rows)
+            issues.extend(operand_found)
+            if operand_found:
                 broken.add(i)
 
     # cycles: walk depth-first over sane deps; a back edge = a cycle
@@ -176,7 +239,7 @@ def _static_issues(
 
 
 def validate(
-    instructions: list[Instruction],
+    instructions: list,
     start: list[int],
     companions: list[list[int]] | None = None,
 ) -> list[Issue]:

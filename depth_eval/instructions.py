@@ -1,31 +1,38 @@
 """Instruction chains and their execution (pass 3 of the solver).
 
-An Instruction is one line of a question: an operation with an operand,
-optionally HELD — "execute this only after instruction #k has executed".
-Effect references in an operand (Changed(j)) hold implicitly, with no hold
-clause. Ordering itself is decided statically in dag.schedule(); execution
-here just replays that schedule against the data.
+A chain mixes two kinds of lines:
+- Instruction     — a data instruction: (op, operand, optional hold).
+- MetaInstruction — a verb aimed at another instruction (mirror, negate,
+  amplify, flip, rewrite, cancel, unwind). See meta/verbs.py for the
+  contract; ordering effects live in dag.py.
 
-Operands resolve at EXECUTION time: At(p) reads the list as it stands when
-the instruction actually runs — never the state at its listed position —
-and Changed(j) reads instruction j's latest execution.
+Execution keeps a DEFINITIONS table: it starts as the listing and edit
+verbs mutate it (never the listing itself). Apply-events always execute the
+CURRENT definition, so the trace records what an instruction became, not
+just what it said. A cancelled instruction still executes as an event (a
+no-op Step), so Changed[j] on it cleanly resolves to 0.
 
-The trace is event-based: one Step per execution event. Instructions
-currently execute once each, but repeats (an instruction executing again)
-are an allowed future feature — effect references always mean the LATEST
-execution of their target.
+Operands resolve at EXECUTION time; unwind is the one deliberate exception
+— it replays the exact x values its target used, from the execution record.
+
+The trace is event-based: Step for applications (including no-ops),
+EditStep for definition changes.
 """
 
 from dataclasses import dataclass
 
+import sympy as sp
+
 from .dag import schedule
+from .meta.base import MetaInstruction
+from .ops import NUMBER_OPS
 from .ops.base import NumberOp
 from .ops.operands import is_elementwise, resolve_elementwise
 
 
 @dataclass(frozen=True)
 class Instruction:
-    """One line: apply `op` with `operand` (int or operand expression).
+    """One data line: apply `op` with `operand` (int or operand expression).
 
     hold_until_after: 1-based number of the instruction that must have
     executed first, or None to execute at its listed position.
@@ -47,10 +54,10 @@ class Instruction:
 
 @dataclass(frozen=True)
 class Step:
-    """One execution event in the trace."""
+    """One application event in the trace (including no-ops)."""
 
     instruction: int      # 1-based listing number
-    x: int | None         # resolved operand value; None for per-element operands
+    x: int | None         # resolved operand value; None for per-element/no-op
     xs: list[int] | None  # the resolved vector for per-element operands
     operation: str        # exact operation applied, formula render ("-n - 78")
     words: str            # exact operation applied, worded ("-78 minus the number")
@@ -58,15 +65,32 @@ class Step:
     seq: list[int]        # list state after this event
 
 
-def render_question(instructions: list[Instruction]) -> str:
+@dataclass(frozen=True)
+class EditStep:
+    """One definition change in the trace. The list itself is untouched."""
+
+    instruction: int  # the editor
+    target: int
+    before: str       # target's definition before, formula render
+    after: str        # ... and after ("(cancelled)" for cancel)
+
+
+def render_question(instructions: list) -> str:
     return "\n".join(ins.render(i) for i, ins in enumerate(instructions, start=1))
 
 
+def _describe(definition) -> str:
+    if definition is None:
+        return "(cancelled)"
+    op, operand = definition
+    return op.formula(operand)
+
+
 def execute(
-    instructions: list[Instruction],
+    instructions: list,
     start: list[int],
     companions: list[list[int]] | None = None,
-) -> tuple[list[int], list[Step]]:
+) -> tuple[list[int], list]:
     """Run a chain in its scheduled order. Returns (final list, trace).
 
     companions[k-1] is instruction k's frozen list B[k] (all rows from the
@@ -76,27 +100,104 @@ def execute(
     seq = list(start)
     original = list(start)  # frozen — what Start[i] reads
     effects: dict[int, int] = {}
-    trace: list[Step] = []
+    trace: list = []
+    # what each data instruction currently MEANS (edits mutate this table,
+    # never the listing)
+    definitions: dict[int, tuple[NumberOp, object] | None] = {
+        n: (ins.op, ins.operand)
+        for n, ins in enumerate(instructions, start=1)
+        if isinstance(ins, Instruction)
+    }
+    # what actually ran: number -> (op, xs), or None for no-ops/edits
+    executed: dict[int, tuple[NumberOp, list[int]] | None] = {}
+
+    def run_op(number: int, op: NumberOp, operand) -> None:
+        nonlocal seq
+        per_element = is_elementwise(operand)
+        xs = resolve_elementwise(operand, seq, effects, companions, original)
+        new = [op.apply(v, xv) for v, xv in zip(seq, xs)]
+        changed = sum(1 for old, now in zip(seq, new) if old != now)
+        seq = new
+        effects[number] = changed
+        executed[number] = (op, xs)
+        if per_element:
+            trace.append(Step(number, None, xs, op.formula(operand),
+                              op.wording(operand), changed, list(seq)))
+        else:
+            trace.append(Step(number, xs[0], None, op.formula(xs[0]),
+                              op.wording(xs[0]), changed, list(seq)))
+
+    def run_noop(number: int, why: str) -> None:
+        effects[number] = 0
+        executed[number] = None
+        trace.append(Step(number, None, None, "(no-op)", why, 0, list(seq)))
+
+    def run_unwind(number: int, target: int) -> None:
+        nonlocal seq
+        record = executed.get(target)
+        if record is None:
+            run_noop(number, f"nothing to undo — instruction {target} did nothing")
+            return
+        op, xs = record
+        if op.inverse is None:
+            raise ValueError(f"cannot undo {op.id} — it has no inverse")
+        inverse = NUMBER_OPS[op.inverse]
+        new = [inverse.apply(v, xv) for v, xv in zip(seq, xs)]
+        changed = sum(1 for old, now in zip(seq, new) if old != now)
+        seq = new
+        effects[number] = changed
+        executed[number] = (inverse, xs)
+        trace.append(Step(number, None, xs, f"undo of instruction {target}",
+                          f"undo what instruction {target} did", changed, list(seq)))
 
     for number in order:
         ins = instructions[number - 1]
-        per_element = is_elementwise(ins.operand)
         try:
-            xs = resolve_elementwise(ins.operand, seq, effects, companions, original)
-            new = [ins.op.apply(v, xv) for v, xv in zip(seq, xs)]
+            if isinstance(ins, Instruction):
+                definition = definitions[number]
+                if definition is None:
+                    run_noop(number, "cancelled — do nothing")
+                else:
+                    run_op(number, *definition)
+                continue
+
+            verb = ins.verb
+            if verb.klass == "edit":
+                before = _describe(definitions.get(ins.target))
+                target_def = definitions.get(ins.target)
+                if verb.name == "cancel":
+                    definitions[ins.target] = None
+                elif target_def is not None:
+                    op, operand = target_def
+                    if verb.name == "amplify":
+                        definitions[ins.target] = (op, 2 * sp.sympify(operand))
+                    elif verb.name == "flip":
+                        if op.inverse is None:
+                            raise ValueError(f"cannot flip {op.id} — it has no inverse")
+                        definitions[ins.target] = (NUMBER_OPS[op.inverse], operand)
+                    elif verb.name == "rewrite":
+                        definitions[ins.target] = (op, ins.operand)
+                effects[number] = 0
+                executed[number] = None
+                trace.append(EditStep(number, ins.target, before,
+                                      _describe(definitions.get(ins.target))))
+            elif verb.klass == "read":
+                definition = definitions.get(ins.target)
+                if definition is None:
+                    run_noop(number,
+                             f"instruction {ins.target} is cancelled — nothing to {verb.name}")
+                elif verb.name == "mirror":
+                    run_op(number, *definition)
+                else:  # negate
+                    op, operand = definition
+                    if op.inverse is None:
+                        raise ValueError(f"cannot negate {op.id} — it has no inverse")
+                    run_op(number, NUMBER_OPS[op.inverse], operand)
+            else:  # undo klass
+                run_unwind(number, ins.target)
         except ValueError as e:
             error = ValueError(f"instruction {number}: {e}")
             error.instruction = number
             raise error from e
-        changed = sum(1 for old, now in zip(seq, new) if old != now)
-        seq = new
-        effects[number] = changed
-        if per_element:
-            step = Step(number, None, xs, ins.op.formula(ins.operand),
-                        ins.op.wording(ins.operand), changed, list(seq))
-        else:
-            step = Step(number, xs[0], None, ins.op.formula(xs[0]),
-                        ins.op.wording(xs[0]), changed, list(seq))
-        trace.append(step)
 
     return seq, trace

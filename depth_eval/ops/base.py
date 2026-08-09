@@ -57,10 +57,14 @@ class NumberOp:
     - phrase: English for the NEW VALUE, `{x}` as operand placeholder.
       Instruction sentences show both renders, e.g.
       "Replace every number with the number times 4 (4*n)".
+    - inverse: the id of the op that exactly undoes this one (None if this
+      op destroys information — min, mod, floor-divide, ... — such ops can
+      never be targeted by negate/flip/unwind).
     """
 
     expr: sp.Expr
     phrase: str
+    inverse: str | None = None
 
     @property
     def id(self) -> str:
