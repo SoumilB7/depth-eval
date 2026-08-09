@@ -65,12 +65,12 @@ def render_question(instructions: list[Instruction]) -> str:
 def execute(
     instructions: list[Instruction],
     start: list[int],
-    companion: list[int] | None = None,
+    companions: list[list[int]] | None = None,
 ) -> tuple[list[int], list[Step]]:
     """Run a chain in its scheduled order. Returns (final list, trace).
 
-    companion is the frozen list B (same seeded generation as the start
-    list); required only when an operand references it.
+    companions[k-1] is instruction k's frozen list B[k] (all rows from the
+    list seed's stream at fixed offsets); required only when referenced.
     """
     order = schedule(instructions)
     seq = list(start)
@@ -81,7 +81,7 @@ def execute(
         ins = instructions[number - 1]
         per_element = is_elementwise(ins.operand)
         try:
-            xs = resolve_elementwise(ins.operand, seq, effects, companion)
+            xs = resolve_elementwise(ins.operand, seq, effects, companions)
             new = [ins.op.apply(v, xv) for v, xv in zip(seq, xs)]
         except ValueError as e:
             error = ValueError(f"instruction {number}: {e}")

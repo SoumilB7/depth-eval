@@ -2,9 +2,11 @@
 
 Two seeds, two responsibilities, never mixed:
 
-- list_seed        -> the DATA. The main list and the frozen companion B
-                      come from one seeded stream (B is the next `length`
-                      draws after the main list — same seeded generation).
+- list_seed        -> the DATA. One seeded stream produces the main list
+                      first, then companion row k for instruction k at a
+                      fixed offset (draws (k*length)..((k+1)*length - 1)).
+                      Rows are pre-addressed: row k is identical whether or
+                      not any question uses it — exact redo-ability.
 - instruction_seed -> the QUESTION. Op choices, operand kinds (drawn by
                       weighted frequency), the numbers inside instructions,
                       and holds all come from this stream and only this one.
@@ -40,7 +42,7 @@ class GeneratorConfig:
             "literal": 40,    # a plain number
             "at": 20,         # List[i] — value at a fixed position
             "changed": 15,    # Changed[j] — effect reference (auto-holds)
-            "matching": 15,   # B[p] — the matching companion number
+            "matching": 15,   # B[k, p] — instruction k's own companion row
             "position": 10,   # p — the element's own position
         }
     )
@@ -59,7 +61,7 @@ class Question:
     instruction_seed: int
     config: GeneratorConfig
     start: list[int]
-    companion: list[int]
+    companions: list[list[int]]  # row k-1 belongs to instruction k
     instructions: list[Instruction]
     text: str
     final: list[int]
@@ -77,7 +79,7 @@ def _random_operand(rng: random.Random, config: GeneratorConfig, number: int):
         if others:
             return Changed(rng.choice(others))
     if kind == "matching":
-        return B[P]
+        return B[number, P]
     if kind == "position":
         return P
     return rng.randint(config.literal_low, config.literal_high)
@@ -100,7 +102,8 @@ def generate(
     list_seed: int, instruction_seed: int, config: GeneratorConfig = GeneratorConfig()
 ) -> Question:
     """Produce one valid, non-degenerate, fully-solved Question."""
-    start, companion = make_sequences(list_seed, 2, config.length, config.low, config.high)
+    lists = make_sequences(list_seed, 1 + config.steps, config.length, config.low, config.high)
+    start, companions = lists[0], lists[1:]
     rng = random.Random(instruction_seed)
     pool = [
         op_id
@@ -111,9 +114,9 @@ def generate(
 
     for attempt in range(1, config.max_attempts + 1):
         chain = _random_chain(rng, config, pool)
-        if validate(chain, start, companion):
+        if validate(chain, start, companions):
             continue
-        final, trace = execute(chain, start, companion)
+        final, trace = execute(chain, start, companions)
         if len(set(final)) < floor:
             continue
         return Question(
@@ -121,7 +124,7 @@ def generate(
             instruction_seed=instruction_seed,
             config=config,
             start=start,
-            companion=companion,
+            companions=companions,
             instructions=chain,
             text=render_question(chain),
             final=final,

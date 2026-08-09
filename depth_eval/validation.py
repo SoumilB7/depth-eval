@@ -12,10 +12,10 @@ Static issues (structure alone):
   infinite-loop state; nothing in the cycle can ever run).
 - blocked              : depends, possibly transitively, on a broken
   instruction, so it can never run either.
-- position_out_of_range: At(p) outside the list, or B[i] outside the
-  companion.
+- position_out_of_range: At(p) outside the list, a companion row outside
+  1..steps, or a companion position outside the row.
 - companion_required   : operand references B but the question has no
-  companion list.
+  companion rows.
 - malformed_operand    : non-integer positions or instruction references
   (indices built from the position symbol P are fine — they resolve
   per element).
@@ -42,7 +42,7 @@ class Issue:
 
 
 def _static_issues(
-    instructions: list[Instruction], length: int, companion_length: int | None
+    instructions: list[Instruction], length: int, companion_rows: int | None
 ) -> list[Issue]:
     k = len(instructions)
     issues: list[Issue] = []
@@ -77,37 +77,57 @@ def _static_issues(
 
         for ref in sp.sympify(ins.operand).atoms(sp.Indexed):
             if ref.base == L:
-                target, size = "the list", length
+                pos = ref.indices[0]
             elif ref.base == B:
-                if companion_length is None:
+                if companion_rows is None:
                     issues.append(
                         Issue(
                             "companion_required",
                             i,
                             f"instruction {i} references list B, "
-                            "but the question has no companion list",
+                            "but the question has no companion rows",
                         )
                     )
                     broken.add(i)
                     continue
-                target, size = "list B", companion_length
+                if len(ref.indices) != 2:
+                    issues.append(
+                        Issue(
+                            "malformed_operand",
+                            i,
+                            f"companion reference {ref} needs B[step, position]",
+                        )
+                    )
+                    broken.add(i)
+                    continue
+                row, pos = ref.indices
+                if not row.is_Integer or not 1 <= int(row) <= companion_rows:
+                    issues.append(
+                        Issue(
+                            "position_out_of_range",
+                            i,
+                            f"instruction {i} reads companion row {row}, "
+                            f"but rows are 1..{companion_rows}",
+                        )
+                    )
+                    broken.add(i)
+                    continue
             else:
                 continue
-            p = ref.indices[0]
-            if p.has(P):
+            if pos.has(P):
                 continue  # position-dependent index; checked by the trial run
-            if not p.is_Integer:
+            if not pos.is_Integer:
                 issues.append(
-                    Issue("malformed_operand", i, f"non-integer position {p} in operand")
+                    Issue("malformed_operand", i, f"non-integer position {pos} in operand")
                 )
                 broken.add(i)
-            elif not 0 <= int(p) < size:
+            elif not 0 <= int(pos) < length:
                 issues.append(
                     Issue(
                         "position_out_of_range",
                         i,
-                        f"instruction {i} reads position {p}, "
-                        f"but {target} is 0..{size - 1}",
+                        f"instruction {i} reads position {pos}, "
+                        f"but positions are 0..{length - 1}",
                     )
                 )
                 broken.add(i)
@@ -158,17 +178,17 @@ def _static_issues(
 def validate(
     instructions: list[Instruction],
     start: list[int],
-    companion: list[int] | None = None,
+    companions: list[list[int]] | None = None,
 ) -> list[Issue]:
     """All issues in a chain, static and dynamic. Empty list == valid."""
     issues = _static_issues(
-        instructions, len(start), None if companion is None else len(companion)
+        instructions, len(start), None if companions is None else len(companions)
     )
     if issues:
         return issues  # structure is broken; a trial run would be meaningless
 
     try:
-        execute(instructions, start, companion)
+        execute(instructions, start, companions)
     except (ValueError, ZeroDivisionError) as e:
         number = getattr(e, "instruction", 0)
         issues.append(Issue("undefined_operation", number, str(e)))
