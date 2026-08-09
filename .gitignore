@@ -21,3 +21,6 @@ venv/
 
 # Local scratch
 scratch/
+
+# Local test runs — never committed
+testruns/

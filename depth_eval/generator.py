@@ -106,37 +106,41 @@ def _random_operand(
     return rng.randint(config.literal_low, config.literal_high)
 
 
+def _random_instruction(
+    rng: random.Random, config: GeneratorConfig, steps: int, length: int,
+    pool: list[str], number: int
+):
+    meta_kinds = {k: w for k, w in config.meta_weights.items() if w > 0}
+    others = [j for j in range(1, steps + 1) if j != number]
+    kind = "data"
+    if others and set(meta_kinds) != {"data"}:
+        kind = rng.choices(list(meta_kinds), weights=list(meta_kinds.values()))[0]
+    hold = None
+    if kind == "data":
+        op = NUMBER_OPS[rng.choice(pool)]
+        operand = _random_operand(rng, config, steps, length, number)
+        if others and rng.random() < config.hold_chance:
+            hold = rng.choice(others)
+        return Instruction(op, operand, hold_until_after=hold)
+    verb = META_VERBS[kind]
+    target = rng.choice(others)
+    operand = (
+        _random_operand(rng, config, steps, length, number)
+        if verb.takes_operand
+        else None
+    )
+    if others and rng.random() < config.hold_chance:
+        hold = rng.choice(others)
+    return MetaInstruction(verb, target, operand=operand, hold_until_after=hold)
+
+
 def _random_chain(
     rng: random.Random, config: GeneratorConfig, steps: int, length: int, pool: list[str]
 ) -> list:
-    meta_kinds = {k: w for k, w in config.meta_weights.items() if w > 0}
-    chain = []
-    for number in range(1, steps + 1):
-        others = [j for j in range(1, steps + 1) if j != number]
-        kind = "data"
-        if others and set(meta_kinds) != {"data"}:
-            kind = rng.choices(list(meta_kinds), weights=list(meta_kinds.values()))[0]
-        hold = None
-        if kind == "data":
-            op = NUMBER_OPS[rng.choice(pool)]
-            operand = _random_operand(rng, config, steps, length, number)
-            if others and rng.random() < config.hold_chance:
-                hold = rng.choice(others)
-            chain.append(Instruction(op, operand, hold_until_after=hold))
-        else:
-            verb = META_VERBS[kind]
-            target = rng.choice(others)
-            operand = (
-                _random_operand(rng, config, steps, length, number)
-                if verb.takes_operand
-                else None
-            )
-            if others and rng.random() < config.hold_chance:
-                hold = rng.choice(others)
-            chain.append(
-                MetaInstruction(verb, target, operand=operand, hold_until_after=hold)
-            )
-    return chain
+    return [
+        _random_instruction(rng, config, steps, length, pool, number)
+        for number in range(1, steps + 1)
+    ]
 
 
 def generate(
@@ -161,12 +165,30 @@ def generate(
     ]
     floor = max(2, int(config.min_distinct_fraction * length))
 
+    # Repair loop: whole-chain re-rolls die geometrically with depth, so on
+    # validation failure only the BLAMED instructions are re-drawn (the
+    # validator names them). Full re-roll only when there is no blame (the
+    # diversity floor). Deterministic: repairs consume the instruction
+    # stream in a fixed order, so the same identity always converges to the
+    # same question.
+    chain = _random_chain(rng, config, steps, length, pool)
     for attempt in range(1, config.max_attempts + 1):
-        chain = _random_chain(rng, config, steps, length, pool)
-        if validate(chain, start, companions):
+        issues = validate(chain, start, companions)
+        if issues:
+            blamed = sorted(
+                {i.instruction for i in issues if 1 <= i.instruction <= steps}
+            )
+            if blamed:
+                for number in blamed:
+                    chain[number - 1] = _random_instruction(
+                        rng, config, steps, length, pool, number
+                    )
+            else:
+                chain = _random_chain(rng, config, steps, length, pool)
             continue
         final, trace = execute(chain, start, companions)
         if len(set(final)) < floor:
+            chain = _random_chain(rng, config, steps, length, pool)
             continue
         return Question(
             list_seed=list_seed,
