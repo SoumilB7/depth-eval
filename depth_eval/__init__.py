@@ -3,6 +3,7 @@ from .dag import Edge, build_edges, schedule
 from .generator import GeneratorConfig, Question, generate
 from .instructions import EditStep, Instruction, Step, execute, render_question
 from .meta import META_VERBS, MetaInstruction, MetaVerb
+from .nomenclature import Label, classify, mix, split
 from .validation import Issue, validate
 from .ops import NUMBER_OPS, At, B, Changed, NumberOp, P, START, resolvable, resolve
 from .sequence import make_sequence, make_sequences
@@ -37,4 +38,8 @@ __all__ = [
     "schedule",
     "Issue",
     "validate",
+    "Label",
+    "classify",
+    "mix",
+    "split",
 ]
