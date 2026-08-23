@@ -73,16 +73,18 @@ def _with_list(body: str, exprs, companion: list[int] | None) -> str:
     return body
 
 
-def _decorate(body: str, how: Application, number: int, hold: int | None) -> str:
-    """The application and hold wrappings shared by every data line."""
+def _decorate(words: str, core: str, how: Application, number: int, hold: int | None) -> str:
+    """One shape for every data line: the full sentence in words, then the
+    complete canonical formula (Application.formula) in one parenthesis."""
     if how.order != "snapshot":
         direction = "left to right" if how.order == "forward" else "right to left"
-        body = (f"{body}, one number at a time moving {direction} "
-                "(each number sees the numbers already updated before it)")
+        words = (f"{words}, one number at a time moving {direction} "
+                 "(each number sees the numbers already updated before it)")
     if how.times != 1:
-        body = f"{body}, {how.times} times over"
+        words = f"{words}, {how.times} times over"
     if how.gate is not ALWAYS:
-        body = f"If {how.gate.phrase} ({how.gate.where}): {body}"
+        words = f"If {how.gate.phrase}: {words}"
+    body = f"{words} [{how.formula(core)}]"
     if hold is not None:
         return (
             f"{number}. Hold this instruction until instruction "
@@ -108,15 +110,13 @@ class Instruction:
     def render(self, number: int, companion: list[int] | None = None) -> str:
         how = self.application
         if how.extent is ALL:
-            body = f"Replace every number with {self.op.render(self.operand)}"
+            words = f"Replace every number with {self.op.wording(self.operand)}"
         else:
-            body = (
-                f"For {how.extent.phrase}, replace it with "
-                f"{self.op.wording(self.operand)} "
-                f"({self.op.formula(self.operand)} where {how.extent.where})"
-            )
-        body = _with_list(body, (self.operand, how.extent.where, how.gate.where), companion)
-        return _decorate(body, how, number, self.hold_until_after)
+            words = (f"For {how.extent.phrase}, replace it with "
+                     f"{self.op.wording(self.operand)}")
+        words = _with_list(words, (self.operand, how.extent.where, how.gate.where), companion)
+        return _decorate(words, self.op.formula(self.operand), how, number,
+                         self.hold_until_after)
 
 
 @dataclass(frozen=True)
@@ -130,12 +130,12 @@ class MoveInstruction:
     def render(self, number: int, companion: list[int] | None = None) -> str:
         how = self.application
         if how.extent is ALL:
-            body = f"{self.move.phrase} ({self.move.formula})"
+            words = self.move.phrase
         else:
-            body = (f"{self.move.phrase}, but only {how.extent.phrase}, keeping "
-                    f"everything else in place ({self.move.formula} where {how.extent.where})")
-        body = _with_list(body, (how.extent.where, how.gate.where), companion)
-        return _decorate(body, how, number, self.hold_until_after)
+            words = (f"{self.move.phrase}, but only {how.extent.phrase}, "
+                     "keeping everything else in place")
+        words = _with_list(words, (how.extent.where, how.gate.where), companion)
+        return _decorate(words, self.move.formula, how, number, self.hold_until_after)
 
 
 @dataclass(frozen=True)
@@ -193,11 +193,8 @@ def _describe(definition) -> str:
     if definition is None:
         return "(cancelled)"
     if isinstance(definition, MoveDef):
-        return definition.move.formula
-    text = definition.op.formula(definition.operand)
-    if definition.how.extent is not ALL:
-        text += f" where {definition.how.extent.where}"
-    return text
+        return definition.how.formula(definition.move.formula)
+    return definition.how.formula(definition.op.formula(definition.operand))
 
 
 def execute(
@@ -286,10 +283,8 @@ def execute(
             if not any(mask):
                 raise dead("scope selects no number")
             passes.append((xs, mask))
-        where = "" if d.how.extent is ALL else f" where {d.how.extent.where}"
-        times = "" if d.how.times == 1 else f" x{d.how.times}"
-        order = "" if d.how.order == "snapshot" else f" {d.how.order}"
-        operation = (d.op.formula(d.operand) if per_element else d.op.formula(xs[0])) + where + times + order
+        core = d.op.formula(d.operand) if per_element else d.op.formula(xs[0])
+        operation = d.how.formula(core)
         words = d.op.wording(d.operand) if per_element else d.op.wording(xs[0])
         changed = sum(1 for old, now in zip(before, seq) if old != now)
         touched = tuple(any(m[i] for _, m in passes) for i in range(len(seq)))
@@ -323,13 +318,11 @@ def execute(
             total = [total[sigma[i]] for i in range(len(seq))]
         if all(total[i] == i for i in range(len(seq))):
             raise dead("the move moves nothing")
-        where = "" if d.how.extent is ALL else f" where {d.how.extent.where}"
-        times = "" if d.how.times == 1 else f" x{d.how.times}"
         mask = [total[i] != i for i in range(len(seq))]
         changed = sum(1 for old, now in zip(before, seq) if old != now)
         effects[number] = Effect(changed, tuple(mask))
         executed[number] = total
-        trace.append(Step(number, None, None, d.move.formula + where + times,
+        trace.append(Step(number, None, None, d.how.formula(d.move.formula),
                           d.move.phrase, changed, list(seq)))
 
     def run_noop(number: int, why: str) -> None:

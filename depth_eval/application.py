@@ -45,6 +45,22 @@ class Application:
     times: int = 1
     gate: Scope = ALWAYS
 
+    def formula(self, core: str) -> str:
+        """THE canonical notation of a line: the core formula (an op's or a
+        move's) wrapped by the non-default axes, one grammar everywhere:
+
+            if <gate>: (<core> where <extent>) xK forward|backward
+        """
+        if self.extent is not ALL:
+            core = f"{core} where {self.extent.where}"
+        if self.times != 1:
+            core = f"({core}) x{self.times}"
+        if self.order != "snapshot":
+            core = f"{core} {self.order}"
+        if self.gate is not ALWAYS:
+            core = f"if {self.gate.where}: {core}"
+        return core
+
     @property
     def marks(self) -> tuple[str, ...]:
         """The non-default axes, for labels: ('stride', 'x3', 'if')."""
