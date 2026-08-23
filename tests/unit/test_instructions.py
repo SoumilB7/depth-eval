@@ -13,10 +13,12 @@ def test_hold_reorders_and_operands_resolve_at_execution():
     assert trace[-1].x == 20 and final == [20, 20, 20]
 
 
-def test_effect_reference_auto_holds_past_and_future():
+def test_effect_reference_past_and_forward_with_its_hold():
     final, t = execute([Instruction(O["Max(n, x)"], 10), Instruction(O["n + x"], Changed(1))], [3, 12, 7, 20])
     assert t[1].x == 2 and final == [12, 14, 12, 22]
-    chain = [Instruction(O["n + x"], Changed(3)), Instruction(O["n*x"], 2), Instruction(O["Min(n, x)"], 25)]
+    # a forward result reference carries its own hold — only holds move a line
+    chain = [Instruction(O["n + x"], Changed(3), hold_until_after=3), Instruction(O["n*x"], 2),
+             Instruction(O["Min(n, x)"], 25)]
     final, t = execute(chain, [5, 10, 20])
     assert [s.instruction for s in t] == [2, 3, 1] and final == [11, 21, 26]
 
@@ -30,7 +32,7 @@ def test_read_verbs():
 def test_edit_verbs_reorder_target_and_compose():
     final, t = execute([MI(V["amplify"], 2), Instruction(O["n + x"], 3)], [0, 0])
     assert isinstance(t[0], EditStep) and t[0].after == "n + 6" and final == [6, 6]
-    assert schedule([Instruction(O["n + x"], 3), MI(V["amplify"], 1)]) == [2, 1]  # target waits for editor
+    assert schedule([Instruction(O["n + x"], 3), MI(V["amplify"], 1)]) == [1, 2]  # an edit never reorders (dead_edit is the validator's call)
     assert execute([MI(V["flip"], 2), Instruction(O["n - x"], 4)], [10])[0] == [14]
     assert execute([MI(V["rewrite"], 2, operand=7), Instruction(O["n*x"], 2)], [3])[0] == [21]
     assert execute([MI(V["amplify"], 3), MI(V["flip"], 3), Instruction(O["n + x"], 5)], [100])[0] == [90]

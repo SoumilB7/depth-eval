@@ -57,6 +57,6 @@ class MetaInstruction:
         if self.hold_until_after is not None:
             return (
                 f"{number}. Hold this instruction until instruction "
-                f"{self.hold_until_after} has executed, then apply it: {body}"
+                f"{self.hold_until_after} has executed, then apply it immediately after it: {body}"
             )
         return f"{number}. {body}"

@@ -2,24 +2,27 @@
 
 Nodes are the listed instructions (1-based). Two edge kinds exist:
 
-- "exec"  j => i : i cannot RUN until j has run. Sources: explicit holds,
-  effect references (Changed[j] / Touched[j, p] in an operand or a scope),
-  undo verbs (unwind needs the target's execution record), and EDIT verbs
-  — reversed: the edit creates exec editor => target, so the TARGET parks
-  until its editor has run (its definition isn't final before that).
+- "exec"  j => i : i cannot RUN until j has run. ONE source: an explicit
+  hold ("hold this instruction until instruction j has executed"). Nothing
+  else moves a line in time. A line that CONSUMES another's result
+  (Changed[j] / Touched[j, p] in an operand, scope or gate; undo of j)
+  does not force j first — j must already be behind it in the schedule,
+  or the question is invalid (validation.py: unexecuted_reference). An
+  edit ("from now on, instruction j ...") never parks its target — j must
+  still be ahead (dead_edit otherwise). The timeline a model has to follow
+  is therefore exactly what it reads: numbered order plus the holds.
 - "def"   j -> i : i cannot be INTERPRETED without j's text — read verbs
-  (mirror/negate), edit verbs, and a scope of "the same numbers as j"
+  (mirror/negate), edit verbs, and a scope of "the same selection as j"
   (ScopeOf[j]) create these. Def edges never reorder anything.
 
-Scheduling walks the listing in order; an instruction whose exec
-dependencies aren't all satisfied parks and is released immediately after
-the last of its triggers runs (same-trigger releases keep listed order;
-releases cascade). The schedule is STATIC — it depends only on the
-instructions, never on list data — so it is computed here once and the
-executor just replays it.
+Scheduling walks the listing in order; an instruction whose hold target
+has not run parks and is released immediately after it runs (same-trigger
+releases keep listed order; releases cascade). The schedule is STATIC —
+it depends only on the instructions, never on list data — so it is
+computed here once and the executor just replays it.
 
-Unschedulable chains (self-reference, circular dependencies, triggers out
-of range) raise; the question generator must never emit them.
+Unschedulable chains (self-hold, circular holds, holds out of range)
+raise; the question generator must never emit them.
 """
 
 from dataclasses import dataclass
@@ -36,8 +39,10 @@ class Edge:
     dst: int
 
 
-def own_triggers(instruction) -> set[int]:
-    """Exec dependencies an instruction declares for ITSELF."""
+def consumes(instruction) -> set[int]:
+    """Lines whose RESULT this instruction uses. They must have run before
+    it — a constraint the validator checks against the schedule, not an
+    edge that would move anything."""
     refs: set[int] = set()
     exprs = [getattr(instruction, "operand", None)]
     if isinstance(instruction, DataLine):
@@ -45,21 +50,17 @@ def own_triggers(instruction) -> set[int]:
     for expr in exprs:
         if expr is not None:
             refs |= effect_refs(expr)
-    if instruction.hold_until_after is not None:
-        refs.add(instruction.hold_until_after)
     if isinstance(instruction, MetaInstruction) and instruction.verb.klass == "undo":
         refs.add(instruction.target)
     return refs
 
 
 def chain_triggers(instructions) -> dict[int, set[int]]:
-    """All exec dependencies, including edit edges imposed ON targets."""
-    triggers = {n: own_triggers(ins) for n, ins in enumerate(instructions, start=1)}
-    for n, ins in enumerate(instructions, start=1):
-        if isinstance(ins, MetaInstruction) and ins.verb.klass == "edit":
-            if 1 <= ins.target <= len(instructions) and ins.target != n:
-                triggers[ins.target].add(n)  # target waits for its editor
-    return triggers
+    """Exec dependencies: each line's hold target, if it has one."""
+    return {
+        n: {ins.hold_until_after} if ins.hold_until_after is not None else set()
+        for n, ins in enumerate(instructions, start=1)
+    }
 
 
 def build_edges(instructions) -> list[Edge]:
@@ -103,6 +104,6 @@ def schedule(instructions) -> list[int]:
         stuck = sorted(number for waiting in parked.values() for number in waiting)
         raise ValueError(
             f"instructions {stuck} can never execute "
-            "(self-reference, circular dependencies, or trigger out of range)"
+            "(self-hold, circular holds, or a hold out of range)"
         )
     return order

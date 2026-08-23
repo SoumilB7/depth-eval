@@ -16,7 +16,16 @@ def test_structural_kinds():
     assert kinds([Instruction(O["n + x"], 1, hold_until_after=1)]) == ["self_reference"]
     assert set(kinds([Instruction(O["n + x"], 5, hold_until_after=2),
                       Instruction(O["n*x"], 2, hold_until_after=1),
-                      Instruction(O["n + x"], Changed(1))])) == {"cycle", "blocked"}
+                      Instruction(O["n + x"], 1, hold_until_after=2)])) == {"cycle", "blocked"}
+
+
+def test_timeline_kinds():
+    # only holds move a line: a result used before its line ran, an edit of a line already run
+    assert kinds([Instruction(O["n + x"], Changed(2)), Instruction(O["n + x"], 1)]) == ["unexecuted_reference"]
+    assert kinds([Instruction(O["n + x"], Changed(2), hold_until_after=2), Instruction(O["n + x"], 1)]) == []
+    assert kinds([Instruction(O["n + x"], 1), MI(V["amplify"], 1)]) == ["dead_edit"]
+    assert kinds([Instruction(O["n + x"], 1, hold_until_after=2), MI(V["amplify"], 1)]) == []
+    assert kinds([MI(V["unwind"], 2), Instruction(O["n + x"], 1)]) == ["unexecuted_reference"]
 
 
 def test_position_kinds():
@@ -32,7 +41,7 @@ def test_meta_kinds():
     assert kinds([Instruction(O["Mod(n, x)"], 2), MI(V["negate"], 1)]) == ["not_invertible"]
     assert kinds([MI(V["cancel"], 3), MI(V["mirror"], 1), Instruction(O["n + x"], 1)]) == ["bad_meta_target"]
     assert kinds([MI(V["rewrite"], 2), Instruction(O["n + x"], 1)]) == ["malformed_operand"]
-    assert set(kinds([MI(V["amplify"], 2, hold_until_after=2), Instruction(O["n + x"], 1)])) == {"cycle"}
+    assert kinds([MI(V["amplify"], 2, hold_until_after=2), Instruction(O["n + x"], 1)]) == ["dead_edit"]
 
 
 def test_dynamic_kind_by_trial_run():

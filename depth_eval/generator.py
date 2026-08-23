@@ -227,11 +227,33 @@ def _random_application(
     return Application(extent=scope, times=times, gate=gate, order=order)
 
 
+def _behind(chain: list, number: int) -> list[int]:
+    """Earlier slots guaranteed to have run by slot `number`'s turn: a hold
+    only ever delays, so k is behind unless its hold chain reaches `number`
+    or beyond (or a slot not drawn yet). The generator draws every result
+    reference from this set, so the timeline a question states is the one
+    it needs — the validator (unexecuted_reference) is the authority."""
+    behind = []
+    for k in range(1, min(number, len(chain) + 1)):
+        seen, j = set(), k
+        while j is not None and j < number and j not in seen:
+            seen.add(j)
+            j = chain[j - 1].hold_until_after if j - 1 < len(chain) else number
+        if j is None:
+            behind.append(k)
+    return behind
+
+
 def _random_instruction(
     rng: random.Random, config: GeneratorConfig, steps: int, length: int,
-    pool: list[str], number: int
+    pool: list[str], number: int, chain: list
 ):
+    """chain: the slots drawn so far (all of them during repair) — result
+    references are drawn from what has run by this slot's turn; a forward
+    result reference writes its hold on the line; an edit aims ahead."""
     others = [j for j in range(1, steps + 1) if j != number]
+    behind = _behind(chain, number)
+    ahead = [j for j in others if j > number]
     # DRAW 1: the nomenclature. A lone instruction has nothing to couple to.
     category = _weighted(rng, config.category_weights) if others else "direct"
 
@@ -239,6 +261,13 @@ def _random_instruction(
         if others and rng.random() < config.hold_chance:
             return rng.choice(others)
         return None
+
+    def consumed():
+        """(target, hold) for a line that uses another line's result."""
+        if behind and (not ahead or rng.random() < 0.5):
+            return rng.choice(behind), hold()
+        j = rng.choice(ahead)
+        return j, j  # forward: the hold is written on the line itself
 
     if category == "direct":
         kind = _weighted(rng, {k: v for k, v in config.direct_weights.items()})
@@ -253,34 +282,45 @@ def _random_instruction(
                 move = swap(a, rng.choice([j for j in range(length) if j != a]))
             else:
                 move = ascending()
-            how = _random_application(rng, config, length, others,
+            how = _random_application(rng, config, length, behind,
                                       extent_allowed=move.name != "swap",
                                       order_allowed=False)
             return MoveInstruction(move, hold_until_after=hold(), application=how)
         op = NUMBER_OPS[rng.choice(pool)]
         operand = _direct_operand(rng, config, length, kind)
-        how = _random_application(rng, config, length, others)
+        how = _random_application(rng, config, length, behind)
         return Instruction(op, operand, hold_until_after=hold(), application=how)
 
     kind = _weighted(rng, config.relative_weights)
     if kind == "effect":
         op = NUMBER_OPS[rng.choice(pool)]
-        operand = Changed(rng.choice(others))
-        how = _random_application(rng, config, length, others)
-        return Instruction(op, operand, hold_until_after=hold(), application=how)
+        j, held = consumed()
+        how = _random_application(rng, config, length, behind)
+        return Instruction(op, Changed(j), hold_until_after=held, application=how)
     verb = META_VERBS[rng.choice(RELATIVE_KINDS[kind][1])]
-    target = rng.choice(others)
+    if verb.klass == "undo":
+        target, held = consumed()
+    elif verb.klass == "edit":
+        held = hold()
+        targets = [j for j in ahead if j > (held or 0)]  # still ahead when the editor runs
+        if not targets:  # last slot: nothing left to change — read a definition instead
+            verb = META_VERBS[rng.choice(RELATIVE_KINDS["definition"][1])]
+            target = rng.choice(others)
+        else:
+            target = rng.choice(targets)
+    else:
+        target, held = rng.choice(others), hold()
     operand = _direct_operand(rng, config, length) if verb.takes_operand else None
-    return MetaInstruction(verb, target, operand=operand, hold_until_after=hold())
+    return MetaInstruction(verb, target, operand=operand, hold_until_after=held)
 
 
 def _random_chain(
     rng: random.Random, config: GeneratorConfig, steps: int, length: int, pool: list[str]
 ) -> list:
-    return [
-        _random_instruction(rng, config, steps, length, pool, number)
-        for number in range(1, steps + 1)
-    ]
+    chain: list = []
+    for number in range(1, steps + 1):
+        chain.append(_random_instruction(rng, config, steps, length, pool, number, chain))
+    return chain
 
 
 def generate(
@@ -321,7 +361,7 @@ def generate(
             if blamed:
                 for number in blamed:
                     chain[number - 1] = _random_instruction(
-                        rng, config, steps, length, pool, number
+                        rng, config, steps, length, pool, number, chain
                     )
             else:
                 chain = _random_chain(rng, config, steps, length, pool)

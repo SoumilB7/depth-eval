@@ -8,8 +8,14 @@ Static issues (structure alone):
 - trigger_out_of_range : hold/effect/meta ref points outside 1..k — e.g.
   the second-last instruction saying "after instruction i+4".
 - self_reference       : an instruction waiting on, or targeting, itself.
-- cycle                : circular dependencies (mutual waits, or edits that
-  circle — the infinite-loop state; nothing in the cycle can ever run).
+- cycle                : circular holds (the infinite-loop state; nothing in
+  the cycle can ever run), or definitions that read each other.
+- unexecuted_reference : a line uses another line's RESULT (Changed[j],
+  Touched[j, p], undo of j) but j has not run by its turn — only a hold
+  moves a line in time, so the text asks for something that does not
+  exist yet. A forward reference must carry its own hold.
+- dead_edit            : "from now on, instruction j ..." when j has already
+  run by the editor's turn — an edit of the past changes nothing.
 - blocked              : depends, possibly transitively, on a broken
   instruction, so it can never run either.
 - position_out_of_range: a fixed position outside the list (List/Start/
@@ -42,7 +48,7 @@ from dataclasses import dataclass
 import sympy as sp
 
 from .application import locked_reason
-from .dag import own_triggers
+from .dag import consumes, schedule
 from .instructions import ExecutionError, execute
 from .lines import DataLine, Instruction, MoveInstruction
 from .meta.base import MetaInstruction
@@ -192,23 +198,25 @@ def _static_issues(
 ) -> list[Issue]:
     k = len(instructions)
     issues: list[Issue] = []
-    # only structurally sane deps go here; pre-initialized because an edit
-    # verb adds an edge onto its TARGET, which may not be visited yet
-    deps: dict[int, set[int]] = {i: set() for i in range(1, k + 1)}       # exec: must run first
+    # only structurally sane references go here
+    deps: dict[int, set[int]] = {i: set() for i in range(1, k + 1)}       # exec: holds
     reads: dict[int, set[int]] = {i: set() for i in range(1, k + 1)}      # def: must read first
+    needs: dict[int, set[int]] = {}   # results a line consumes: must be behind it
+    edits: dict[int, int] = {}        # editor -> target: must still be ahead of it
     broken: set[int] = set()
 
     for i, ins in enumerate(instructions, start=1):
         try:
-            refs = own_triggers(ins)
+            refs = consumes(ins)
         except ValueError as e:
             issues.append(Issue("malformed_operand", i, str(e)))
             broken.add(i)
             continue
 
-        for j in refs:
+        hold = ins.hold_until_after
+        for j in sorted(refs | ({hold} if hold is not None else set())):
             if j == i:
-                issues.append(Issue("self_reference", i, f"instruction {i} waits on itself"))
+                issues.append(Issue("self_reference", i, f"instruction {i} waits on or reads itself"))
                 broken.add(i)
             elif not 1 <= j <= k:
                 issues.append(
@@ -221,7 +229,10 @@ def _static_issues(
                 )
                 broken.add(i)
             else:
-                deps[i].add(j)
+                if j == hold:
+                    deps[i].add(j)
+                if j in refs:
+                    needs.setdefault(i, set()).add(j)
 
         if isinstance(ins, MetaInstruction):
             meta_found = _meta_issues(i, ins, instructions)
@@ -230,7 +241,7 @@ def _static_issues(
                 broken.add(i)
             else:
                 if ins.verb.klass == "edit":
-                    deps[ins.target].add(i)  # target waits for its editor
+                    edits[i] = ins.target
                 if ins.verb.klass in ("read", "edit"):
                     reads[i].add(ins.target)
 
@@ -270,7 +281,7 @@ def _static_issues(
                 continue
             broken.add(i)
 
-    # cycles — in the exec graph (mutual waits) and in the def graph
+    # cycles — in the exec graph (circular holds) and in the def graph
     # (definitions that read each other: "same as" / mirror loops)
     in_cycle = _cycles(deps)
     for i in sorted(in_cycle):
@@ -295,6 +306,24 @@ def _static_issues(
             issues.append(
                 Issue("blocked", i, f"instruction {i} depends on an instruction that can never run")
             )
+
+    # the timeline: only holds move a line, so the static schedule is final.
+    # Everything a line CONSUMES must already be behind it there; an EDIT's
+    # target must still be ahead. Blame lands on the line that asked.
+    if not issues:
+        position = {n: at for at, n in enumerate(schedule(instructions))}
+        for i, js in sorted(needs.items()):
+            for j in sorted(js):
+                if position[j] > position[i]:
+                    issues.append(Issue(
+                        "unexecuted_reference", i,
+                        f"instruction {i} uses the result of instruction {j}, "
+                        "which has not run by then"))
+        for i, j in sorted(edits.items()):
+            if position[j] < position[i]:
+                issues.append(Issue(
+                    "dead_edit", i,
+                    f"instruction {i} changes instruction {j}, which has already run by then"))
 
     return issues
 
