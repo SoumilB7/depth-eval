@@ -66,8 +66,9 @@ line's private list `B`) remember what was.
 ## Difficulty as data
 
 Question flavour lives in [configs/](configs/) as plain JSON — operand
-frequencies, hold chance, meta verb mix. `shallow`, `default`, `deep`
-ship; drop in your own state and it's selectable by name.
+frequencies, hold chance, meta verb mix, and how lines land (scope, repeat
+count, gate, order, move kind). `shallow`, `default`, `deep` ship; drop in
+your own state and it's selectable by name.
 
 ## Under the hood
 
