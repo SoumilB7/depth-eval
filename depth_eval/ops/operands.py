@@ -7,11 +7,11 @@ The operand of an operation is itself a SymPy expression built from:
 - an original reference:  Start[4] — the value the ORIGINAL list held at
                           position 4; Start[P] — the element's own original
                           value (frozen, never affected by instructions)
+- a companion reference:  B[4] — position 4 of THIS INSTRUCTION'S private
+                          list; B[P] — the matching element of it
 - an effect reference:    Changed(j) — see below
 - the element's position: P (prints `p`) — each element's own 0-indexed index
-- a companion reference:  B[k, P] — the matching number in instruction k's
-                          companion list; B[k, 3] — a fixed position in it
-- any composition:        At(4) + 1, B[2, P] - P, Abs(At(2) - At(9)), ...
+- any composition:        At(4) + 1, B[P] - P, Abs(At(2) - At(9)), ...
 
 Scalar operands (no P) resolve ONCE per instruction to a single integer.
 Per-element operands (containing P) resolve to a VECTOR — one integer per
@@ -19,14 +19,15 @@ position — still in one snapshot BEFORE the pass: List references read the
 current list as it stands when the instruction executes, never mid-pass.
 Either way, ops only ever receive plain integers.
 
-Companion rows are FROZEN and pre-addressed: one seeded stream (the list
-seed) generates the main list and then row k for instruction k at a fixed
-offset — rows are surfaced in a question only when referenced, but row k is
-exactly recomputable from the seed no matter which rows a question uses.
+The companion list B is a private random set of numbers attached to the
+line of text it is written in: frozen, the same length as the main list,
+born from the list seed at a fixed offset (so it is exactly recomputable
+whether or not the question uses it). There is NO way to reference another
+instruction's list — B always means "the list of the line this text is on";
+the executor supplies that list at resolution time.
 
-Positions are 0-indexed; a position outside the list (or a companion row,
-or a row number outside 1..steps) makes the operand unresolvable (the
-question generator must avoid emitting it).
+Positions are 0-indexed; a position outside the list (or outside B) makes
+the operand unresolvable (the question generator must avoid emitting it).
 """
 
 import sympy as sp
@@ -78,9 +79,14 @@ def is_elementwise(operand) -> bool:
     """Whether the operand resolves per element (uses the position symbol P).
 
     B refs alone don't make an operand per-element: B[3] is a fixed
-    companion position, resolved once like any scalar.
+    position of the private list, resolved once like any scalar.
     """
     return sp.sympify(operand).has(P)
+
+
+def uses_companion(operand) -> bool:
+    """Whether the operand reads the instruction's private list B."""
+    return any(_is_companion_ref(e) for e in sp.sympify(operand).atoms(sp.Indexed))
 
 
 def effect_refs(operand) -> set[int]:
@@ -98,6 +104,8 @@ def effect_refs(operand) -> set[int]:
 
 def _indexed_lookup(values: list[int], name: str):
     def lookup(ref: sp.Indexed) -> sp.Integer:
+        if len(ref.indices) != 1:
+            raise ValueError(f"{name} reference {ref} takes exactly one position")
         idx = ref.indices[0]
         if not idx.is_Integer:
             raise ValueError(f"non-integer position {idx} in {name} reference")
@@ -109,26 +117,11 @@ def _indexed_lookup(values: list[int], name: str):
     return lookup
 
 
-def _companion_lookup(rows: list[list[int]]):
-    def lookup(ref: sp.Indexed) -> sp.Integer:
-        if len(ref.indices) != 2:
-            raise ValueError(f"companion reference {ref} needs B[step, position]")
-        k, pos = ref.indices
-        if not (k.is_Integer and pos.is_Integer):
-            raise ValueError(f"non-integer index in companion reference {ref}")
-        k, pos = int(k), int(pos)
-        if not 1 <= k <= len(rows):
-            raise ValueError(f"companion row {k} out of range 1..{len(rows)}")
-        row = rows[k - 1]
-        if not 0 <= pos < len(row):
-            raise ValueError(f"position {pos} out of range 0..{len(row) - 1} in B[{k}]")
-        return sp.Integer(row[pos])
+def _collapse(expr, seq, effects, companion, original) -> int:
+    """Fully resolve an expression with concrete indices to an integer.
 
-    return lookup
-
-
-def _collapse(expr, seq, effects, companions, original) -> int:
-    """Fully resolve an expression with concrete indices to an integer."""
+    companion is THIS instruction's private list (or None if it has none).
+    """
 
     def lookup_effect(ref: sp.Indexed) -> sp.Integer:
         j = int(ref.indices[0])
@@ -142,9 +135,9 @@ def _collapse(expr, seq, effects, companions, original) -> int:
             raise ValueError(f"operand {expr} references Start but no original list given")
         result = result.replace(_is_start_ref, _indexed_lookup(original, "Start"))
     if any(_is_companion_ref(e) for e in result.atoms(sp.Indexed)):
-        if companions is None:
-            raise ValueError(f"operand {expr} references B but no companion rows exist")
-        result = result.replace(_is_companion_ref, _companion_lookup(companions))
+        if companion is None:
+            raise ValueError(f"operand {expr} references B but this instruction has no list")
+        result = result.replace(_is_companion_ref, _indexed_lookup(companion, "B"))
     result = result.replace(_is_effect_ref, lookup_effect)
     if result.is_Integer is not True:
         raise ValueError(f"operand {expr} did not resolve to an integer")
@@ -155,21 +148,21 @@ def resolve(
     operand,
     seq: list[int],
     effects: dict[int, int] | None = None,
-    companions: list[list[int]] | None = None,
+    companion: list[int] | None = None,
     original: list[int] | None = None,
 ) -> int:
     """Collapse a SCALAR operand to one integer against the current list."""
     expr = sp.sympify(operand)
     if is_elementwise(expr):
         raise ValueError(f"operand {expr} is per-element — use resolve_elementwise")
-    return _collapse(expr, seq, effects, companions, original)
+    return _collapse(expr, seq, effects, companion, original)
 
 
 def resolve_elementwise(
     operand,
     seq: list[int],
     effects: dict[int, int] | None = None,
-    companions: list[list[int]] | None = None,
+    companion: list[int] | None = None,
     original: list[int] | None = None,
 ) -> list[int]:
     """Resolve an operand to one integer PER POSITION, in one snapshot.
@@ -179,9 +172,9 @@ def resolve_elementwise(
     """
     expr = sp.sympify(operand)
     if not is_elementwise(expr):
-        return [_collapse(expr, seq, effects, companions, original)] * len(seq)
+        return [_collapse(expr, seq, effects, companion, original)] * len(seq)
     return [
-        _collapse(expr.subs(P, i), seq, effects, companions, original)
+        _collapse(expr.subs(P, i), seq, effects, companion, original)
         for i in range(len(seq))
     ]
 
@@ -190,11 +183,11 @@ def resolvable(
     operand,
     seq: list[int],
     effects: dict[int, int] | None = None,
-    companions: list[list[int]] | None = None,
+    companion: list[int] | None = None,
     original: list[int] | None = None,
 ) -> bool:
     try:
-        resolve(operand, seq, effects, companions, original)
+        resolve(operand, seq, effects, companion, original)
         return True
     except (ValueError, ZeroDivisionError):
         return False
@@ -202,7 +195,7 @@ def resolvable(
 
 def phrase(operand) -> str:
     """English for an operand: 4 -> '4', At(4) -> 'the number at position 4',
-    P -> 'its own position', B[P] -> 'the matching number in list B'.
+    P -> 'its own position', B[P] -> 'the matching number in its list B'.
 
     Composite operands fall back to their formula form — structure to
     string, one way, as always.
@@ -219,9 +212,9 @@ def phrase(operand) -> str:
         if idx == P:
             return "its original number"
         return f"the original number at position {idx}"
-    if _is_companion_ref(expr) and len(expr.indices) == 2:
-        k, pos = expr.indices
-        if pos == P:
-            return f"the matching number in list B{k}"
-        return f"the number at position {pos} in list B{k}"
+    if _is_companion_ref(expr) and len(expr.indices) == 1:
+        idx = expr.indices[0]
+        if idx == P:
+            return "the matching number in this instruction's list B"
+        return f"the number at position {idx} in this instruction's list B"
     return str(expr)

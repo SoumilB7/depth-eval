@@ -13,12 +13,14 @@ Two types live here (classes differentiate kinds, members are instances):
 
 - MetaInstruction: one line of a question — a verb aimed at a target
   instruction number, with an optional operand (rewrite needs one) and the
-  same hold mechanics as data instructions.
+  same hold mechanics as data instructions. An operand written on this
+  line may read B — this line's own private list.
 """
 
 from dataclasses import dataclass
 
 from ..ops.operands import phrase as operand_phrase
+from ..ops.operands import uses_companion
 
 
 @dataclass(frozen=True)
@@ -36,9 +38,15 @@ class MetaInstruction:
     operand: object | None = None
     hold_until_after: int | None = None
 
-    def render(self, number: int) -> str:
+    def render(self, number: int, companion: list[int] | None = None) -> str:
         x = operand_phrase(self.operand) if self.operand is not None else ""
         body = self.verb.phrase.format(j=self.target, x=x)
+        if (
+            companion is not None
+            and self.operand is not None
+            and uses_companion(self.operand)
+        ):
+            body = f"{body} — this instruction's list B = {list(companion)}"
         if self.hold_until_after is not None:
             return (
                 f"{number}. Hold this instruction until instruction "

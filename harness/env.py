@@ -10,9 +10,10 @@ A run spec is the exact string testruns/ already uses for filenames:
     {config}-s{steps}-L{length}-ls{list_seed}-is{instruction_seed}
     e.g. default-s10-L10-ls42-is37
 
-The observation is raw parts for now (instruction text, start list,
-companion rows). Prompt assembly — the conventions preamble, which rows to
-surface — is a later, deliberate layer; agents decide nothing about truth,
+The observation is raw parts for now (instruction text — self-contained,
+each line shows its private list B inline — start list, and the per-line
+lists). Prompt assembly — the conventions preamble — is a later, deliberate
+layer; agents decide nothing about truth,
 they only see the observation and hand back a list of integers.
 """
 

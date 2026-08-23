@@ -47,8 +47,8 @@ capability surface.
 ## The instruction space
 
 ```
-data   :  15 ops  ×  7 operand kinds  ×  optional hold
-           add, mod, gcd, min, ...       7, List[3], Start[p], B[k,p],
+data   :  15 ops  ×  direct / relative operand  ×  optional hold
+           add, mod, gcd, min, ...       7, List[3], Start[p], B[p],
                                          Changed[j], p, ...
 meta   :  mirror · negate · amplify · flip · rewrite · cancel · unwind
            read another instruction, edit its future, or undo its past
@@ -56,8 +56,8 @@ meta   :  mirror · negate · amplify · flip · rewrite · cancel · unwind
 
 References resolve **at execution time** — "the number at position 3" means
 position 3 *at that moment*, after everything before it already ran. Holds
-and future references bend the timeline; frozen views (`Start`, companion
-rows `B[k]`) remember what was.
+and future references bend the timeline; frozen views (`Start`, and each
+line's private list `B`) remember what was.
 
 ## Difficulty as data
 

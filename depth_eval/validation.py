@@ -12,16 +12,17 @@ Static issues (structure alone):
   circle — the infinite-loop state; nothing in the cycle can ever run).
 - blocked              : depends, possibly transitively, on a broken
   instruction, so it can never run either.
-- position_out_of_range: At(p)/Start(p) outside the list, a companion row
-  outside 1..steps, or a companion position outside the row.
-- companion_required   : operand references B but the question has no
-  companion rows.
+- position_out_of_range: List/Start position outside the list, or a B
+  position outside the line's private list.
+- companion_required   : a line's text reads B but the question gave that
+  line no private list.
 - bad_meta_target      : a meta verb aimed at another meta instruction
   (v1: verbs target data instructions only).
 - not_invertible       : negate/flip/unwind aimed at an op with no inverse
   (min, mod, floor-divide, ...).
 - malformed_operand    : non-integer positions or instruction references,
-  a rewrite without an operand, or an operand on a verb that takes none.
+  multi-index references, a rewrite without an operand, or an operand on a
+  verb that takes none.
 
 Dynamic issues (need the actual list, found by trial run):
 - undefined_operation  : an op hits an undefined point (division by zero,
@@ -45,57 +46,48 @@ class Issue:
     message: str
 
 
-def _operand_issues(i, operand, length, companion_rows):
+def _operand_issues(i, operand, length, companion_length):
+    """companion_length: length of THIS line's private list, None if none."""
     issues = []
     for ref in sp.sympify(operand).atoms(sp.Indexed):
         if ref.base == L or ref.base == START:
-            pos = ref.indices[0]
+            source, size = "the list", length
         elif ref.base == B:
-            if companion_rows is None:
+            if companion_length is None:
                 issues.append(
                     Issue(
                         "companion_required",
                         i,
-                        f"instruction {i} references list B, "
-                        "but the question has no companion rows",
+                        f"instruction {i} reads its list B, but has no list",
                     )
                 )
                 continue
-            if len(ref.indices) != 2:
-                issues.append(
-                    Issue(
-                        "malformed_operand",
-                        i,
-                        f"companion reference {ref} needs B[step, position]",
-                    )
-                )
-                continue
-            row, pos = ref.indices
-            if not row.is_Integer or not 1 <= int(row) <= companion_rows:
-                issues.append(
-                    Issue(
-                        "position_out_of_range",
-                        i,
-                        f"instruction {i} reads companion row {row}, "
-                        f"but rows are 1..{companion_rows}",
-                    )
-                )
-                continue
+            source, size = "its list B", companion_length
         else:
             continue
+        if len(ref.indices) != 1:
+            issues.append(
+                Issue(
+                    "malformed_operand",
+                    i,
+                    f"reference {ref} takes exactly one position",
+                )
+            )
+            continue
+        pos = ref.indices[0]
         if pos.has(P):
             continue  # position-dependent index; checked by the trial run
         if not pos.is_Integer:
             issues.append(
                 Issue("malformed_operand", i, f"non-integer position {pos} in operand")
             )
-        elif not 0 <= int(pos) < length:
+        elif not 0 <= int(pos) < size:
             issues.append(
                 Issue(
                     "position_out_of_range",
                     i,
-                    f"instruction {i} reads position {pos}, "
-                    f"but positions are 0..{length - 1}",
+                    f"instruction {i} reads position {pos} of {source}, "
+                    f"but positions are 0..{size - 1}",
                 )
             )
     return issues
@@ -147,7 +139,7 @@ def _meta_issues(i, ins: MetaInstruction, instructions):
 
 
 def _static_issues(
-    instructions: list, length: int, companion_rows: int | None
+    instructions: list, length: int, companions: list[list[int]] | None
 ) -> list[Issue]:
     k = len(instructions)
     issues: list[Issue] = []
@@ -190,7 +182,10 @@ def _static_issues(
                 deps[ins.target].add(i)  # target waits for its editor
 
         if getattr(ins, "operand", None) is not None:
-            operand_found = _operand_issues(i, ins.operand, length, companion_rows)
+            companion_length = None
+            if companions is not None and i - 1 < len(companions):
+                companion_length = len(companions[i - 1])
+            operand_found = _operand_issues(i, ins.operand, length, companion_length)
             issues.extend(operand_found)
             if operand_found:
                 broken.add(i)
@@ -243,10 +238,11 @@ def validate(
     start: list[int],
     companions: list[list[int]] | None = None,
 ) -> list[Issue]:
-    """All issues in a chain, static and dynamic. Empty list == valid."""
-    issues = _static_issues(
-        instructions, len(start), None if companions is None else len(companions)
-    )
+    """All issues in a chain, static and dynamic. Empty list == valid.
+
+    companions[k-1] is instruction k's private list B (or None for none).
+    """
+    issues = _static_issues(instructions, len(start), companions)
     if issues:
         return issues  # structure is broken; a trial run would be meaningless
 
