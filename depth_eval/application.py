@@ -30,7 +30,6 @@ from .ops.scope import ALL, Scope
 
 FORMS = ("map", "permute")
 ORDERS = ("snapshot", "forward", "backward")
-ENABLED = {"form": ("map",), "order": ORDERS}
 
 ALWAYS = Scope("always", sp.true, "always")
 
@@ -64,3 +63,20 @@ class Application:
 
 
 WHOLE = Application()
+
+
+def locked_reason(how: Application, move: str | None = None) -> str | None:
+    """THE single authority on which applications are legal. Returns the
+    reason a combination is locked, or None if it may execute.
+    `move` is the move name for a permute line, None for a map line."""
+    if how.form not in FORMS or how.order not in ORDERS:
+        return f"unknown axis value (form={how.form!r}, order={how.order!r})"
+    if how.times < 1:
+        return "times must be >= 1"
+    if how.form != "map":
+        return "form is carried by the line kind (MoveInstruction), not this flag"
+    if move is not None and how.order != "snapshot":
+        return "an ordered move has no meaning — a permutation is simultaneous"
+    if move == "swap" and how.extent.kind != "all":
+        return "a scoped swap is not allowed — swap already names absolute positions"
+    return None

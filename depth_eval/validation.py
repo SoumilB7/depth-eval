@@ -41,7 +41,7 @@ from dataclasses import dataclass
 
 import sympy as sp
 
-from .application import ENABLED
+from .application import locked_reason
 from .dag import own_triggers
 from .instructions import Instruction, MoveInstruction, execute
 from .meta.base import MetaInstruction
@@ -212,25 +212,11 @@ def _static_issues(
             companion_length = len(companions[i - 1])
         how = getattr(ins, "application", None)
         if how is not None:
-            for axis, allowed in ENABLED.items():
-                if getattr(how, axis) not in allowed:
-                    issues.append(Issue("locked_application", i,
-                                        f"instruction {i}: {axis}={getattr(how, axis)!r} is not enabled yet"))
-                    broken.add(i)
-            if how.times < 1:
-                issues.append(Issue("locked_application", i, f"instruction {i}: times must be >= 1"))
-                broken.add(i)
-            if isinstance(ins, MoveInstruction) and how.order != "snapshot":
-                issues.append(Issue("locked_application", i,
-                                    f"instruction {i}: an ordered move has no meaning — "
-                                    "a permutation is simultaneous"))
-                broken.add(i)
-            if isinstance(ins, MoveInstruction) and (
-                ins.move.name == "swap" and how.extent.kind != "all"
-            ):
-                issues.append(Issue("locked_application", i,
-                                    f"instruction {i}: a scoped swap is not allowed — "
-                                    "swap already names absolute positions"))
+            reason = locked_reason(
+                how, ins.move.name if isinstance(ins, MoveInstruction) else None
+            )
+            if reason is not None:
+                issues.append(Issue("locked_application", i, f"instruction {i}: {reason}"))
                 broken.add(i)
         exprs = (getattr(ins, "operand", None),) + ((how.extent.where, how.gate.where) if how else ())
         for expr in exprs:
