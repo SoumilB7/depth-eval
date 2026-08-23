@@ -1,57 +1,43 @@
-"""Instruction chains and their execution (pass 3 of the solver).
+"""Execution — pass 3 of the solver. The line kinds live in lines.py, what
+they currently mean in definitions.py, the verbs in meta/verbs.py; this
+module only runs a chain in its scheduled order.
 
-A chain mixes three kinds of lines:
-- Instruction     — a MAP line: (op, operand, optional hold, application) —
-  every touched value becomes op(value, x).
-- MoveInstruction — a PERMUTE line: (move, optional hold, application) —
-  values MOVE instead of changing (ops/moves.py). No op, no operand. A
-  SCOPED move permutes the values among the selected positions only (the
-  subsequence, in index order); unselected positions never move. Scoped
-  swap and ordered moves are locked — no coherent meaning.
-- MetaInstruction — a verb aimed at another instruction (mirror, negate,
-  amplify, flip, rewrite, cancel, unwind). See meta/verbs.py.
+Execution keeps a DEFINITIONS table (MapDef | MoveDef | None-if-cancelled)
+that starts as the listing; edit verbs replace entries, the listing never
+changes. Apply-events always execute the CURRENT definition, so the trace
+records what a line became, not just what it said. A cancelled line still
+executes as an event (a no-op Step), so Changed[j] resolves to 0 and
+Touched[j, p] to 0 everywhere.
 
-A line's APPLICATION decides how it lands: its EXTENT (a Scope — which
-positions; ALL by default; selecting nothing is an error, empty_scope —
-a move whose permutation is the identity is dead the same way), its TIMES
-(k passes, operands re-resolved and permutations composed per pass, one
-trace event for the whole), and its GATE (a whole-list condition; closed =
-a no-op event).
-
-Every line may carry a private list B (its companion). B in an operand,
-scope, or gate always means the list of the LINE THE TEXT IS WRITTEN ON —
-a definition carries the owner of its B. A data line owns its own
-definition; a rewrite installs an operand written on the editor's line, so
-that definition's owner is the editor; mirror/negate execute j's
-definition (application included) and so read j's list. Nothing can name
-another line's list explicitly.
-
-Execution keeps a DEFINITIONS table (MapDef | MoveDef | None-if-cancelled):
-it starts as the listing and edit verbs mutate it, never the listing.
-Apply-events always execute the CURRENT definition, so the trace records
-what a line became, not just what it said. A cancelled line still executes
-as an event (a no-op Step), so Changed[j] resolves to 0 and Touched[j, p]
-to 0 everywhere.
+A line's APPLICATION decides how it lands: EXTENT (which positions;
+selecting nothing — or a move moving nothing — is a dead line,
+empty_scope), TIMES (k passes, everything re-resolved per pass, one trace
+event, Changed = the NET change over the whole line), GATE (a whole-list
+test, checked once pre-pass; closed = a no-op event), ORDER (an ordered
+pass resolves each element at its own moment and its operand only where
+it applies).
 
 Operands and scopes resolve at EXECUTION time; unwind is the one deliberate
-exception — it replays the record: for a map line the exact x values on the
-exact touched positions, for a move line the inverse of the executed
-permutation (which is why even sort can be unwound).
+exception — it replays the execution RECORD: a map line's exact x values on
+the exact touched positions, pass by pass in reverse; a move line's
+permutation, inverted (so even sort can be unwound).
 
 The trace is event-based: Step for applications (including no-ops),
-EditStep for definition changes.
+EditStep for definition changes. Errors are ExecutionError(instruction,
+kind): the gate (validation.py) reads both fields.
 """
 
 from dataclasses import dataclass
 
 import sympy as sp
 
-from .application import ALWAYS, WHOLE, Application
+from .application import Application
 from .dag import schedule
+from .definitions import MapDef, MoveDef, describe
+from .lines import Instruction, MoveInstruction
 from .meta.base import MetaInstruction
 from .ops import NUMBER_OPS
 from .ops.base import NumberOp
-from .ops.moves import Move
 from .ops.operands import (
     P,
     SCOPE_OF,
@@ -61,81 +47,23 @@ from .ops.operands import (
     resolve_condition,
     resolve_elementwise,
     resolve_mask,
-    uses_companion,
 )
 from .ops.scope import ALL
 
 
-def _with_list(body: str, exprs, companion: list[int] | None) -> str:
-    """Append the line's private list when its text reads B."""
-    if companion is not None and any(e is not None and uses_companion(e) for e in exprs):
-        return f"{body} — this instruction's list B = {list(companion)}"
-    return body
+class ExecutionError(ValueError):
+    """A chain failed at one instruction: which, and (if named) why."""
+
+    def __init__(self, instruction: int, message: str, kind: str | None = None):
+        super().__init__(f"instruction {instruction}: {message}")
+        self.instruction = instruction
+        self.kind = kind
 
 
-def _decorate(words: str, core: str, how: Application, number: int, hold: int | None) -> str:
-    """One shape for every data line: the full sentence in words, then the
-    complete canonical formula (Application.formula) in one parenthesis."""
-    if how.order != "snapshot":
-        direction = "left to right" if how.order == "forward" else "right to left"
-        words = (f"{words}, one number at a time moving {direction} "
-                 "(each number sees the numbers already updated before it)")
-    if how.times != 1:
-        words = f"{words}, {how.times} times over"
-    if how.gate is not ALWAYS:
-        words = f"If {how.gate.phrase}: {words}"
-    body = f"{words} [{how.formula(core)}]"
-    if hold is not None:
-        return (
-            f"{number}. Hold this instruction until instruction "
-            f"{hold} has executed, then apply it: {body}"
-        )
-    return f"{number}. {body}"
+class Dead(ValueError):
+    """A line that would touch nothing — reported as empty_scope."""
 
-
-@dataclass(frozen=True)
-class Instruction:
-    """One map line: apply `op` with `operand`, landing on the list the
-    way `application` says (every position, once, always — by default).
-
-    hold_until_after: 1-based number of the instruction that must have
-    executed first, or None to execute at its listed position.
-    """
-
-    op: NumberOp
-    operand: object
-    hold_until_after: int | None = None
-    application: Application = WHOLE
-
-    def render(self, number: int, companion: list[int] | None = None) -> str:
-        how = self.application
-        if how.extent is ALL:
-            words = f"Replace every number with {self.op.wording(self.operand)}"
-        else:
-            words = (f"For {how.extent.phrase}, replace it with "
-                     f"{self.op.wording(self.operand)}")
-        words = _with_list(words, (self.operand, how.extent.where, how.gate.where), companion)
-        return _decorate(words, self.op.formula(self.operand), how, number,
-                         self.hold_until_after)
-
-
-@dataclass(frozen=True)
-class MoveInstruction:
-    """One permute line: values move as `move` says (ops/moves.py)."""
-
-    move: Move
-    hold_until_after: int | None = None
-    application: Application = WHOLE
-
-    def render(self, number: int, companion: list[int] | None = None) -> str:
-        how = self.application
-        if how.extent is ALL:
-            words = self.move.phrase
-        else:
-            words = (f"{self.move.phrase}, but only {how.extent.phrase}, "
-                     "keeping everything else in place")
-        words = _with_list(words, (how.extent.where, how.gate.where), companion)
-        return _decorate(words, self.move.formula, how, number, self.hold_until_after)
+    kind = "empty_scope"
 
 
 @dataclass(frozen=True)
@@ -145,9 +73,9 @@ class Step:
     instruction: int      # 1-based listing number
     x: int | None         # resolved operand value; None for per-element/move/no-op
     xs: list[int] | None  # the resolved vector for per-element operands
-    operation: str        # exact operation applied, formula render ("-n - 78")
-    words: str            # exact operation applied, worded ("-78 minus the number")
-    changed: int          # count of positions whose value changed
+    operation: str        # the canonical formula that ran (Application.formula)
+    words: str            # the same, worded
+    changed: int          # NET count of positions whose value changed
     seq: list[int]        # list state after this event
 
 
@@ -157,44 +85,39 @@ class EditStep:
 
     instruction: int  # the editor
     target: int
-    before: str       # target's definition before, formula render
+    before: str       # target's definition before, canonical formula
     after: str        # ... and after ("(cancelled)" for cancel)
 
 
 @dataclass(frozen=True)
-class MapDef:
-    """What a map line currently means."""
+class MapRecord:
+    """What a map line actually ran: its op and, per pass, the resolved xs
+    and the touched mask. undo() inverts every pass in reverse order."""
 
     op: NumberOp
-    operand: object
-    how: Application
-    owner: int  # the line whose private list a B in the text refers to
+    passes: tuple  # ((xs, mask), ...)
+
+    def undo(self, seq: list[int]) -> tuple[list[int], list[bool]]:
+        if self.op.inverse is None:
+            raise ValueError(f"cannot undo {self.op.id} — it has no inverse")
+        inverse = NUMBER_OPS[self.op.inverse]
+        for xs, mask in reversed(self.passes):
+            seq = [inverse.apply(v, xv) if m else v for v, xv, m in zip(seq, xs, mask)]
+        return seq, [any(mask[i] for _, mask in self.passes) for i in range(len(seq))]
 
 
 @dataclass(frozen=True)
-class MoveDef:
-    """What a move line currently means."""
+class MoveRecord:
+    """What a move line actually ran: its composed permutation."""
 
-    move: Move
-    how: Application
+    permutation: tuple
 
-
-def render_question(instructions: list, companions: list[list[int]] | None = None) -> str:
-    """The numbered question text. With companions, every line that reads
-    B shows its own private list inline — the text is self-contained."""
-    lines = []
-    for i, ins in enumerate(instructions, start=1):
-        companion = companions[i - 1] if companions is not None else None
-        lines.append(ins.render(i, companion))
-    return "\n".join(lines)
-
-
-def _describe(definition) -> str:
-    if definition is None:
-        return "(cancelled)"
-    if isinstance(definition, MoveDef):
-        return definition.how.formula(definition.move.formula)
-    return definition.how.formula(definition.op.formula(definition.operand))
+    def undo(self, seq: list[int]) -> tuple[list[int], list[bool]]:
+        inverse = [0] * len(self.permutation)
+        for i, s in enumerate(self.permutation):
+            inverse[s] = i
+        return ([seq[inverse[i]] for i in range(len(seq))],
+                [self.permutation[i] != i for i in range(len(seq))])
 
 
 def execute(
@@ -213,17 +136,13 @@ def execute(
     effects: dict[int, Effect] = {}
     trace: list = []
     nothing = Effect(0, (False,) * len(seq))
-    # what each data line currently MEANS. Edits mutate this table, never
-    # the listing.
     definitions: dict[int, MapDef | MoveDef | None] = {}
     for n, ins in enumerate(instructions, start=1):
         if isinstance(ins, Instruction):
-            definitions[n] = MapDef(ins.op, ins.operand, ins.application, n)
+            definitions[n] = MapDef(ins.op, ins.operand, ins.application, n, n)
         elif isinstance(ins, MoveInstruction):
-            definitions[n] = MoveDef(ins.move, ins.application)
-    # what actually ran: map -> (op, [(xs, mask) per pass]); move ->
-    # composed permutation. Unwind replays the WHOLE record, in reverse.
-    executed: dict[int, tuple[NumberOp, list] | list[int] | None] = {}
+            definitions[n] = MoveDef(ins.move, ins.application, n)
+    executed: dict[int, MapRecord | MoveRecord | None] = {}
 
     def list_of(owner: int) -> list[int] | None:
         return companions[owner - 1] if companions is not None else None
@@ -241,18 +160,19 @@ def execute(
             where = where.xreplace(replacements)
         raise ValueError("scope references never settle")
 
-    def dead(why: str) -> ValueError:
-        error = ValueError(why)
-        error.kind = "empty_scope"
-        return error
-
     def gate_open(how: Application, companion) -> bool:
         return resolve_condition(how.gate.where, seq, effects, companion, original)
 
+    def record(number: int, before: list[int], mask, rec, x, xs, operation: str, words: str) -> None:
+        changed = sum(1 for old, now in zip(before, seq) if old != now)
+        effects[number] = Effect(changed, tuple(mask))
+        executed[number] = rec
+        trace.append(Step(number, x, xs, operation, words, changed, list(seq)))
+
     def run_map(number: int, d: MapDef) -> None:
         nonlocal seq
-        companion = list_of(d.owner)
-        if not gate_open(d.how, companion):
+        line_list, operand_list = list_of(d.line), list_of(d.operand_owner)
+        if not gate_open(d.how, line_list):
             run_noop(number, f"gate closed — {d.how.gate.phrase} does not hold")
             return
         per_element = is_elementwise(d.operand) or d.how.order != "snapshot"
@@ -261,8 +181,8 @@ def execute(
         passes = []
         for _ in range(d.how.times):  # operands and extent re-resolve every pass
             if d.how.order == "snapshot":
-                xs = resolve_elementwise(d.operand, seq, effects, companion, original)
-                mask = resolve_mask(where_expr, seq, effects, companion, original)
+                xs = resolve_elementwise(d.operand, seq, effects, operand_list, original)
+                mask = resolve_mask(where_expr, seq, effects, line_list, original)
                 if any(mask):
                     seq = [d.op.apply(v, xv) if m else v for v, xv, m in zip(seq, xs, mask)]
             else:
@@ -274,29 +194,26 @@ def execute(
                 xs, mask = [0] * len(seq), [False] * len(seq)
                 for i in positions:
                     if not resolve_condition(sp.sympify(where_expr).subs(P, i),
-                                             seq, effects, companion, original):
+                                             seq, effects, line_list, original):
                         continue
                     xs[i] = resolve(sp.sympify(d.operand).subs(P, i),
-                                    seq, effects, companion, original)
+                                    seq, effects, operand_list, original)
                     seq[i] = d.op.apply(seq[i], xs[i])
                     mask[i] = True
             if not any(mask):
-                raise dead("scope selects no number")
+                raise Dead("scope selects no number")
             passes.append((xs, mask))
         core = d.op.formula(d.operand) if per_element else d.op.formula(xs[0])
-        operation = d.how.formula(core)
         words = d.op.wording(d.operand) if per_element else d.op.wording(xs[0])
-        changed = sum(1 for old, now in zip(before, seq) if old != now)
-        touched = tuple(any(m[i] for _, m in passes) for i in range(len(seq)))
-        effects[number] = Effect(changed, touched)
-        executed[number] = (d.op, passes)
-        trace.append(Step(number, None if per_element else xs[0], xs if per_element else None,
-                          operation, words, changed, list(seq)))
+        touched = [any(m[i] for _, m in passes) for i in range(len(seq))]
+        record(number, before, touched, MapRecord(d.op, tuple(passes)),
+               None if per_element else xs[0], xs if per_element else None,
+               d.how.formula(core), words)
 
     def run_move(number: int, d: MoveDef) -> None:
         nonlocal seq
-        companion = list_of(number)
-        if not gate_open(d.how, companion):
+        line_list = list_of(d.line)
+        if not gate_open(d.how, line_list):
             run_noop(number, f"gate closed — {d.how.gate.phrase} does not hold")
             return
         before = seq
@@ -308,7 +225,7 @@ def execute(
                 # scoped move: permute the values among the selected
                 # positions only (the subsequence, in index order)
                 selected = resolve_mask(current_scope(d.how.extent.where),
-                                        seq, effects, companion, original)
+                                        seq, effects, line_list, original)
                 chosen = [i for i, m in enumerate(selected) if m]
                 sub_sigma = d.move.sigma([seq[i] for i in chosen])
                 sigma = list(range(len(seq)))
@@ -317,13 +234,10 @@ def execute(
             seq = [seq[sigma[i]] for i in range(len(seq))]
             total = [total[sigma[i]] for i in range(len(seq))]
         if all(total[i] == i for i in range(len(seq))):
-            raise dead("the move moves nothing")
-        mask = [total[i] != i for i in range(len(seq))]
-        changed = sum(1 for old, now in zip(before, seq) if old != now)
-        effects[number] = Effect(changed, tuple(mask))
-        executed[number] = total
-        trace.append(Step(number, None, None, d.how.formula(d.move.formula),
-                          d.move.phrase, changed, list(seq)))
+            raise Dead("the move moves nothing")
+        record(number, before, [total[i] != i for i in range(len(seq))],
+               MoveRecord(tuple(total)), None, None, d.how.formula(d.move.formula),
+               d.move.phrase)
 
     def run_noop(number: int, why: str) -> None:
         effects[number] = nothing
@@ -332,29 +246,14 @@ def execute(
 
     def run_unwind(number: int, target: int) -> None:
         nonlocal seq
-        record = executed.get(target)
-        if record is None:
+        rec = executed.get(target)
+        if rec is None:
             run_noop(number, f"nothing to undo — instruction {target} did nothing")
             return
         before = seq
-        if isinstance(record, list):  # a move: invert the executed permutation
-            inverse = [0] * len(record)
-            for i, s in enumerate(record):
-                inverse[s] = i
-            seq = [seq[inverse[i]] for i in range(len(seq))]
-            xs, mask = None, [record[i] != i for i in range(len(seq))]
-        else:  # a map: invert every pass, in reverse order
-            op, passes = record
-            if op.inverse is None:
-                raise ValueError(f"cannot undo {op.id} — it has no inverse")
-            inverse_op = NUMBER_OPS[op.inverse]
-            for xs, mask in reversed(passes):
-                seq = [inverse_op.apply(v, xv) if m else v for v, xv, m in zip(seq, xs, mask)]
-            mask = [any(m[i] for _, m in passes) for i in range(len(seq))]
-        changed = sum(1 for old, now in zip(before, seq) if old != now)
-        effects[number] = Effect(changed, tuple(mask))
-        trace.append(Step(number, None, xs, f"undo of instruction {target}",
-                          f"undo what instruction {target} did", changed, list(seq)))
+        seq, mask = rec.undo(seq)
+        record(number, before, mask, None, None, None,
+               f"undo of instruction {target}", f"undo what instruction {target} did")
 
     def run_definition(number: int, definition) -> None:
         if definition is None:
@@ -370,61 +269,24 @@ def execute(
             if not isinstance(ins, MetaInstruction):
                 run_definition(number, definitions[number])
                 continue
-
-            verb = ins.verb
+            verb, target = ins.verb, definitions.get(ins.target)
             if verb.klass == "edit":
-                before = _describe(definitions.get(ins.target))
-                target_def = definitions.get(ins.target)
-                if verb.name == "cancel":
-                    definitions[ins.target] = None
-                elif isinstance(target_def, MapDef):
-                    if verb.name == "amplify":
-                        definitions[ins.target] = MapDef(
-                            target_def.op, 2 * sp.sympify(target_def.operand),
-                            target_def.how, target_def.owner)
-                    elif verb.name == "flip":
-                        if target_def.op.inverse is None:
-                            raise ValueError(f"cannot flip {target_def.op.id} — it has no inverse")
-                        definitions[ins.target] = MapDef(
-                            NUMBER_OPS[target_def.op.inverse], target_def.operand,
-                            target_def.how, target_def.owner)
-                    elif verb.name == "rewrite":
-                        # the new operand is written on the editor's line,
-                        # so any B in it is the editor's list
-                        definitions[ins.target] = MapDef(
-                            target_def.op, ins.operand, target_def.how, number)
-                elif isinstance(target_def, MoveDef) and verb.name == "flip":
-                    flipped = target_def.move.inverse()
-                    if flipped is None:
-                        raise ValueError(f"cannot flip {target_def.move.name} — it has no inverse")
-                    definitions[ins.target] = MoveDef(flipped, target_def.how)
+                new = None if target is None else verb.transform(target, ins, number)
+                definitions[ins.target] = new
                 effects[number] = nothing
                 executed[number] = None
-                trace.append(EditStep(number, ins.target, before,
-                                      _describe(definitions.get(ins.target))))
+                trace.append(EditStep(number, ins.target, describe(target), describe(new)))
             elif verb.klass == "read":
-                definition = definitions.get(ins.target)
-                if definition is None:
+                if target is None:
                     run_noop(number,
                              f"instruction {ins.target} is cancelled — nothing to {verb.name}")
-                elif verb.name == "mirror":
-                    run_definition(number, definition)
-                elif isinstance(definition, MoveDef):  # negate a move
-                    negated = definition.move.inverse()
-                    if negated is None:
-                        raise ValueError(f"cannot negate {definition.move.name} — it has no inverse")
-                    run_move(number, MoveDef(negated, definition.how))
-                else:  # negate a map
-                    if definition.op.inverse is None:
-                        raise ValueError(f"cannot negate {definition.op.id} — it has no inverse")
-                    run_map(number, MapDef(NUMBER_OPS[definition.op.inverse],
-                                           definition.operand, definition.how, definition.owner))
-            else:  # undo klass
+                else:
+                    run_definition(number, verb.transform(target, ins, number))
+            else:  # undo
                 run_unwind(number, ins.target)
+        except ExecutionError:
+            raise
         except ValueError as e:
-            error = ValueError(f"instruction {number}: {e}")
-            error.instruction = number
-            error.kind = getattr(e, "kind", None)
-            raise error from e
+            raise ExecutionError(number, str(e), getattr(e, "kind", None)) from e
 
     return seq, trace

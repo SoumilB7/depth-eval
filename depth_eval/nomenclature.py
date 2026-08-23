@@ -49,7 +49,7 @@ from dataclasses import dataclass
 
 import sympy as sp
 
-from .instructions import Instruction, MoveInstruction
+from .lines import Instruction, MoveInstruction
 from .meta.base import MetaInstruction
 from .ops.operands import B, L, P, POS, START, _CHANGED, effect_refs, position_form
 from .ops.scope import SCOPE_KINDS

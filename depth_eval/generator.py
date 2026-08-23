@@ -33,7 +33,8 @@ import random
 from dataclasses import dataclass, field
 
 from .application import ALWAYS, ORDERS, TIMES_CHOICES, WHOLE, Application
-from .instructions import Instruction, MoveInstruction, Step, execute, render_question
+from .instructions import Step, execute
+from .lines import Instruction, MoveInstruction, render_question
 from .ops.moves import ascending, reverse, rotate, swap
 from .meta import META_VERBS, MetaInstruction
 from .nomenclature import CATEGORIES, DIRECT_KINDS, RELATIVE_KINDS, check_weights

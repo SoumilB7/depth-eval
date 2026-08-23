@@ -2,7 +2,8 @@ from .application import ALWAYS, WHOLE, Application
 from .configs import list_configs, load_config
 from .dag import Edge, build_edges, schedule
 from .generator import GeneratorConfig, Question, generate
-from .instructions import EditStep, Instruction, MoveInstruction, Step, execute, render_question
+from .instructions import EditStep, ExecutionError, Step, execute
+from .lines import DataLine, Instruction, MoveInstruction, render_question
 from .ops.moves import Move, ascending, reverse, rotate, swap
 from .meta import META_VERBS, MetaInstruction, MetaVerb
 from .nomenclature import Label, classify, mix, split, type_of
@@ -47,8 +48,10 @@ __all__ = [
     "same_as",
     "resolve",
     "resolvable",
+    "DataLine",
     "Instruction",
     "MoveInstruction",
+    "ExecutionError",
     "Move",
     "reverse",
     "rotate",

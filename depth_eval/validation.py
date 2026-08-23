@@ -43,7 +43,8 @@ import sympy as sp
 
 from .application import locked_reason
 from .dag import own_triggers
-from .instructions import Instruction, MoveInstruction, execute
+from .instructions import ExecutionError, execute
+from .lines import DataLine, Instruction, MoveInstruction
 from .meta.base import MetaInstruction
 from .ops.operands import B, L, P, POS, START, scope_refs
 
@@ -164,6 +165,28 @@ def _meta_issues(i, ins: MetaInstruction, instructions):
     return issues
 
 
+def _cycles(graph: dict[int, set[int]]) -> set[int]:
+    """Nodes on any cycle of a graph — depth-first, a back edge = a cycle."""
+    state: dict[int, int] = {}  # absent=unvisited, 1=in progress, 2=done
+    on_cycle: set[int] = set()
+
+    def walk(node: int, path: list[int]) -> None:
+        state[node] = 1
+        path.append(node)
+        for dep in graph.get(node, ()):
+            if state.get(dep) == 1:
+                on_cycle.update(path[path.index(dep):])
+            elif dep not in state:
+                walk(dep, path)
+        path.pop()
+        state[node] = 2
+
+    for node in graph:
+        if node not in state:
+            walk(node, [])
+    return on_cycle
+
+
 def _static_issues(
     instructions: list, length: int, companions: list[list[int]] | None
 ) -> list[Issue]:
@@ -171,7 +194,8 @@ def _static_issues(
     issues: list[Issue] = []
     # only structurally sane deps go here; pre-initialized because an edit
     # verb adds an edge onto its TARGET, which may not be visited yet
-    deps: dict[int, set[int]] = {i: set() for i in range(1, k + 1)}
+    deps: dict[int, set[int]] = {i: set() for i in range(1, k + 1)}       # exec: must run first
+    reads: dict[int, set[int]] = {i: set() for i in range(1, k + 1)}      # def: must read first
     broken: set[int] = set()
 
     for i, ins in enumerate(instructions, start=1):
@@ -204,13 +228,16 @@ def _static_issues(
             issues.extend(meta_found)
             if meta_found:
                 broken.add(i)
-            elif ins.verb.klass == "edit":
-                deps[ins.target].add(i)  # target waits for its editor
+            else:
+                if ins.verb.klass == "edit":
+                    deps[ins.target].add(i)  # target waits for its editor
+                if ins.verb.klass in ("read", "edit"):
+                    reads[i].add(ins.target)
 
         companion_length = None
         if companions is not None and i - 1 < len(companions):
             companion_length = len(companions[i - 1])
-        how = getattr(ins, "application", None)
+        how = ins.application if isinstance(ins, DataLine) else None
         if how is not None:
             reason = locked_reason(
                 how, ins.move.name if isinstance(ins, MoveInstruction) else None
@@ -218,7 +245,11 @@ def _static_issues(
             if reason is not None:
                 issues.append(Issue("locked_application", i, f"instruction {i}: {reason}"))
                 broken.add(i)
-        exprs = (getattr(ins, "operand", None),) + ((how.extent.where, how.gate.where) if how else ())
+            if scope_refs(how.gate.where):
+                issues.append(Issue("malformed_operand", i,
+                                    f"instruction {i}: a gate cannot be 'the same as' another line"))
+                broken.add(i)
+        exprs = [getattr(ins, "operand", None)] + ([how.extent.where, how.gate.where] if how else [])
         for expr in exprs:
             if expr is not None:
                 found = _operand_issues(i, expr, length, companion_length)
@@ -235,34 +266,21 @@ def _static_issues(
                 issues.append(Issue("bad_meta_target", i,
                                     f"instruction {i} scopes on instruction {j}, which has no scope"))
             else:
+                reads[i].add(j)
                 continue
             broken.add(i)
 
-    # cycles: walk depth-first over sane deps; a back edge = a cycle
-    state: dict[int, int] = {}  # 0/absent=unvisited, 1=in progress, 2=done
-    in_cycle: set[int] = set()
-
-    def walk(node: int, path: list[int]) -> None:
-        state[node] = 1
-        path.append(node)
-        for dep in deps.get(node, ()):
-            if state.get(dep) == 1:
-                loop = path[path.index(dep):]
-                in_cycle.update(loop)
-            elif state.get(dep, 0) == 0:
-                walk(dep, path)
-        path.pop()
-        state[node] = 2
-
-    for i in deps:
-        if state.get(i, 0) == 0:
-            walk(i, [])
+    # cycles — in the exec graph (mutual waits) and in the def graph
+    # (definitions that read each other: "same as" / mirror loops)
+    in_cycle = _cycles(deps)
     for i in sorted(in_cycle):
-        cycle_deps = sorted(deps[i] & in_cycle)
-        issues.append(
-            Issue("cycle", i, f"instruction {i} is in a dependency cycle with {cycle_deps}")
-        )
-    broken |= in_cycle
+        issues.append(Issue("cycle", i,
+                            f"instruction {i} is in a dependency cycle with {sorted(deps[i] & in_cycle)}"))
+    read_cycle = _cycles(reads)
+    for i in sorted(read_cycle):
+        issues.append(Issue("cycle", i,
+                            f"instruction {i} is in a definition cycle with {sorted(reads[i] & read_cycle)}"))
+    broken |= in_cycle | read_cycle
 
     # blocked: anything that transitively depends on a broken instruction
     def is_blocked(node: int, seen: set[int]) -> bool:
@@ -296,7 +314,6 @@ def validate(
 
     try:
         execute(instructions, start, companions)
-    except (ValueError, ZeroDivisionError) as e:
-        number = getattr(e, "instruction", 0)
-        issues.append(Issue(getattr(e, "kind", None) or "undefined_operation", number, str(e)))
+    except ExecutionError as e:
+        issues.append(Issue(e.kind or "undefined_operation", e.instruction, str(e)))
     return issues

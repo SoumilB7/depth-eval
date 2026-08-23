@@ -10,6 +10,11 @@ Two types live here (classes differentiate kinds, members are instances):
               the listed text). Edits mutate definitions, NEVER the listing,
               and never retroactively — reordering makes that impossible.
     "undo" -> exec j⇒i : i needs j's actual execution record (the trace).
+  Its `transform` IS its meaning (meta/verbs.py): given the target's
+  current definition, the meta line and its number, it returns the
+  definition to run (read verbs) or the target's new definition (edit
+  verbs, None = cancelled). Undo verbs replay the execution record instead
+  and carry no transform.
 
 - MetaInstruction: one line of a question — a verb aimed at a target
   instruction number, with an optional operand (rewrite needs one) and the
@@ -18,6 +23,7 @@ Two types live here (classes differentiate kinds, members are instances):
 """
 
 from dataclasses import dataclass
+from typing import Callable
 
 from ..ops.operands import phrase as operand_phrase
 from ..ops.operands import uses_companion
@@ -29,6 +35,7 @@ class MetaVerb:
     klass: str  # "read" | "edit" | "undo"
     phrase: str  # sentence template; {j} = target number, {x} = operand
     takes_operand: bool = False
+    transform: Callable | None = None  # (definition, meta line, number) -> definition | None
 
 
 @dataclass(frozen=True)

@@ -24,6 +24,7 @@ of range) raise; the question generator must never emit them.
 
 from dataclasses import dataclass
 
+from .lines import DataLine
 from .meta.base import MetaInstruction
 from .ops.operands import effect_refs, scope_refs
 
@@ -38,8 +39,9 @@ class Edge:
 def own_triggers(instruction) -> set[int]:
     """Exec dependencies an instruction declares for ITSELF."""
     refs: set[int] = set()
-    how = getattr(instruction, "application", None)
-    exprs = (getattr(instruction, "operand", None),) + ((how.extent.where, how.gate.where) if how else ())
+    exprs = [getattr(instruction, "operand", None)]
+    if isinstance(instruction, DataLine):
+        exprs += [instruction.application.extent.where, instruction.application.gate.where]
     for expr in exprs:
         if expr is not None:
             refs |= effect_refs(expr)
@@ -69,9 +71,8 @@ def build_edges(instructions) -> list[Edge]:
     for n, ins in enumerate(instructions, start=1):
         if isinstance(ins, MetaInstruction) and ins.verb.klass in ("read", "edit"):
             edges.append(Edge("def", ins.target, n))
-        how = getattr(ins, "application", None)
-        if how is not None:
-            edges += [Edge("def", j, n) for j in sorted(scope_refs(how.extent.where))]
+        if isinstance(ins, DataLine):
+            edges += [Edge("def", j, n) for j in sorted(scope_refs(ins.application.extent.where))]
     return edges
 
 
