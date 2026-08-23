@@ -13,7 +13,7 @@
     "origin": 15,
     "companion": 15,
     "positional": 10,
-    "move": 0
+    "move": 5
   },
   "relative_weights": {
     "effect": 100,
@@ -23,27 +23,33 @@
     "erase": 0
   },
   "scope_weights": {
-    "all": 100,
-    "stride": 0,
-    "span": 0,
-    "value": 0,
-    "touched": 0,
-    "same": 0
+    "all": 80,
+    "stride": 6,
+    "span": 4,
+    "value": 5,
+    "touched": 3,
+    "same": 2
   },
   "times_weights": {
-    "1": 100,
-    "2": 0,
-    "3": 0
+    "1": 90,
+    "2": 7,
+    "3": 3
   },
   "gate_weights": {
-    "always": 100,
-    "value": 0,
-    "effect": 0
+    "always": 90,
+    "value": 5,
+    "effect": 5
   },
   "order_weights": {
-    "snapshot": 100,
-    "forward": 0,
-    "backward": 0
+    "snapshot": 94,
+    "forward": 3,
+    "backward": 3
+  },
+  "move_weights": {
+    "reverse": 25,
+    "rotate": 25,
+    "swap": 25,
+    "sort": 25
   },
   "hold_chance": 0.25,
   "include_powers": false,

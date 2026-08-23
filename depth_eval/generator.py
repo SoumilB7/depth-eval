@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from .application import ALWAYS, ORDERS, TIMES_CHOICES, WHOLE, Application
 from .instructions import Step, execute
 from .lines import Instruction, MoveInstruction, render_question
-from .ops.moves import ascending, reverse, rotate, swap
+from .ops.moves import MOVE_NAMES, ascending, reverse, rotate, swap
 from .meta import META_VERBS, MetaInstruction
 from .nomenclature import CATEGORIES, DIRECT_KINDS, RELATIVE_KINDS, check_weights
 from .ops.scope import (ALL, GATE_KINDS, SCOPE_KINDS, above, bigger_at, changed_more,
@@ -104,6 +104,11 @@ class GeneratorConfig:
     order_weights: dict[str, int] = field(
         default_factory=lambda: {"snapshot": 100, "forward": 0, "backward": 0}
     )
+    # DRAW 3e — FORM: which move a permute line is (drawn only when
+    # direct_weights["move"] > 0)
+    move_weights: dict[str, int] = field(
+        default_factory=lambda: {"reverse": 25, "rotate": 25, "swap": 25, "sort": 25}
+    )
     hold_chance: float = 0.25
     include_powers: bool = False  # n**x / x**n explode under chaining
     # the output list must keep at least this fraction of distinct values
@@ -123,6 +128,7 @@ class GeneratorConfig:
         check_weights("times_weights", self.times_weights, TIMES_CHOICES)
         check_weights("gate_weights", self.gate_weights, GATE_KINDS)
         check_weights("order_weights", self.order_weights, ORDERS)
+        check_weights("move_weights", self.move_weights, MOVE_NAMES)
 
 
 @dataclass(frozen=True)
@@ -237,12 +243,12 @@ def _random_instruction(
     if category == "direct":
         kind = _weighted(rng, {k: v for k, v in config.direct_weights.items()})
         if kind == "move":
-            pick = rng.randint(0, 3)
-            if pick == 0:
+            pick = _weighted(rng, config.move_weights)
+            if pick == "reverse":
                 move = reverse()
-            elif pick == 1:
+            elif pick == "rotate":
                 move = rotate(rng.randint(1, length - 1))
-            elif pick == 2:
+            elif pick == "swap":
                 a = rng.randint(0, length - 1)
                 move = swap(a, rng.choice([j for j in range(length) if j != a]))
             else:

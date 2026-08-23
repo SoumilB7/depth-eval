@@ -45,6 +45,12 @@
     "forward": 6,
     "backward": 4
   },
+  "move_weights": {
+    "reverse": 25,
+    "rotate": 25,
+    "swap": 25,
+    "sort": 25
+  },
   "hold_chance": 0.4,
   "include_powers": false,
   "min_distinct_fraction": 0.3,
