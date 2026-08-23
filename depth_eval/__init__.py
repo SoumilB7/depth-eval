@@ -8,7 +8,8 @@ from .meta import META_VERBS, MetaInstruction, MetaVerb
 from .nomenclature import Label, classify, mix, split, type_of
 from .validation import Issue, validate
 from .ops import (ALL, NUMBER_OPS, At, B, Changed, NumberOp, P, POS, START, Scope, above,
-                  even, odd, resolvable, resolve, same_as, span, stride, touched, untouched)
+                  bigger_at, changed_more, even, even_at, odd, odd_at, resolvable, resolve,
+                  same_as, span, stride, touched, untouched)
 from .sequence import make_sequence, make_sequences
 
 __all__ = [
@@ -37,6 +38,10 @@ __all__ = [
     "even",
     "odd",
     "above",
+    "even_at",
+    "odd_at",
+    "bigger_at",
+    "changed_more",
     "touched",
     "untouched",
     "same_as",

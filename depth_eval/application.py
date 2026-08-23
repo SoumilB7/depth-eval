@@ -32,6 +32,9 @@ ENABLED = {"form": ("map",), "order": ("snapshot",)}
 
 ALWAYS = Scope("always", sp.true, "always")
 
+# the drawable pass counts (hand-built lines may use any times >= 1)
+TIMES_CHOICES = ("1", "2", "3")
+
 
 @dataclass(frozen=True)
 class Application:

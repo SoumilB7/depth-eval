@@ -32,12 +32,13 @@ rejections just consume more draws, so the outcome stays deterministic.
 import random
 from dataclasses import dataclass, field
 
-from .application import WHOLE, Application
+from .application import ALWAYS, TIMES_CHOICES, WHOLE, Application
 from .instructions import Instruction, MoveInstruction, Step, execute, render_question
 from .ops.moves import ascending, reverse, rotate, swap
 from .meta import META_VERBS, MetaInstruction
 from .nomenclature import CATEGORIES, DIRECT_KINDS, RELATIVE_KINDS, check_weights
-from .ops.scope import ALL, SCOPE_KINDS, above, even, odd, same_as, span, stride, touched, untouched
+from .ops.scope import (ALL, GATE_KINDS, SCOPE_KINDS, above, bigger_at, changed_more,
+                        even, even_at, odd, odd_at, same_as, span, stride, touched, untouched)
 from .ops import NUMBER_OPS, At, B, Changed, P, POS, START
 from .sequence import make_sequences
 from .validation import validate
@@ -90,6 +91,14 @@ class GeneratorConfig:
             "all": 100, "stride": 0, "span": 0, "value": 0, "touched": 0, "same": 0
         }
     )
+    # DRAW 3b — TIMES: how many passes ("1" alone = no draw)
+    times_weights: dict[str, int] = field(
+        default_factory=lambda: {"1": 100, "2": 0, "3": 0}
+    )
+    # DRAW 3c — GATE: always | a value test | an effect test ("always" alone = no draw)
+    gate_weights: dict[str, int] = field(
+        default_factory=lambda: {"always": 100, "value": 0, "effect": 0}
+    )
     hold_chance: float = 0.25
     include_powers: bool = False  # n**x / x**n explode under chaining
     # the output list must keep at least this fraction of distinct values
@@ -106,6 +115,8 @@ class GeneratorConfig:
         )
         check_weights("relative_weights", self.relative_weights, RELATIVE_KINDS)
         check_weights("scope_weights", self.scope_weights, SCOPE_KINDS)
+        check_weights("times_weights", self.times_weights, TIMES_CHOICES)
+        check_weights("gate_weights", self.gate_weights, GATE_KINDS)
 
 
 @dataclass(frozen=True)
@@ -169,11 +180,36 @@ def _random_scope(rng: random.Random, config: GeneratorConfig, length: int, othe
     return ALL
 
 
-def _random_application(rng: random.Random, config: GeneratorConfig, length: int, others: list[int]) -> Application:
-    """HOW a data line lands. Only the EXTENT axis is drawn today (scope
-    weights); TIMES and GATE have no knobs yet, FORM/ORDER are locked."""
-    scope = _random_scope(rng, config, length, others)
-    return WHOLE if scope is ALL else Application(extent=scope)
+def _random_gate(rng: random.Random, config: GeneratorConfig, length: int, others: list[int]):
+    if {k for k, w in config.gate_weights.items() if w > 0} == {"always"}:
+        return ALWAYS  # no draw: the stream is untouched
+    kind = _weighted(rng, config.gate_weights)
+    if kind == "value":
+        pick, i = rng.randint(0, 2), rng.randint(0, length - 1)
+        if pick == 0:
+            return even_at(i)
+        if pick == 1:
+            return odd_at(i)
+        return bigger_at(i, rng.randint(config.literal_low, config.literal_high))
+    if kind == "effect" and others:
+        return changed_more(rng.choice(others), rng.randint(0, length // 2))
+    return ALWAYS
+
+
+def _random_application(
+    rng: random.Random, config: GeneratorConfig, length: int, others: list[int],
+    extent_allowed: bool = True,
+) -> Application:
+    """HOW a data line lands: EXTENT (map lines only), TIMES, GATE.
+    All-default weight tables consume no draws at all."""
+    scope = _random_scope(rng, config, length, others) if extent_allowed else ALL
+    times = 1
+    if {k for k, w in config.times_weights.items() if w > 0} != {"1"}:
+        times = int(_weighted(rng, config.times_weights))
+    gate = _random_gate(rng, config, length, others)
+    if scope is ALL and times == 1 and gate is ALWAYS:
+        return WHOLE
+    return Application(extent=scope, times=times, gate=gate)
 
 
 def _random_instruction(
@@ -202,7 +238,8 @@ def _random_instruction(
                 move = swap(a, rng.choice([j for j in range(length) if j != a]))
             else:
                 move = ascending()
-            return MoveInstruction(move, hold_until_after=hold())
+            how = _random_application(rng, config, length, others, extent_allowed=False)
+            return MoveInstruction(move, hold_until_after=hold(), application=how)
         op = NUMBER_OPS[rng.choice(pool)]
         operand = _direct_operand(rng, config, length, kind)
         how = _random_application(rng, config, length, others)

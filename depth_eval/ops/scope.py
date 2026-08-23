@@ -25,10 +25,11 @@ from dataclasses import dataclass
 
 import sympy as sp
 
-from .operands import L, P, SCOPE_OF, TOUCHED
+from .operands import _CHANGED, L, P, SCOPE_OF, TOUCHED
 from .operands import phrase as operand_phrase
 
 SCOPE_KINDS = ("all", "stride", "span", "value", "touched", "same")
+GATE_KINDS = ("always", "value", "effect")
 
 
 @dataclass(frozen=True)
@@ -86,3 +87,23 @@ def untouched(j: int) -> Scope:
 
 def same_as(j: int) -> Scope:
     return Scope("same", SCOPE_OF[j], f"the same numbers as instruction {j}")
+
+
+# --- gates: whole-list conditions (no p) — the GATE axis of an Application ---
+
+def even_at(i: int) -> Scope:
+    return Scope("value", sp.Eq(sp.Mod(L[i], 2), 0), f"the number at position {i} is even")
+
+
+def odd_at(i: int) -> Scope:
+    return Scope("value", sp.Eq(sp.Mod(L[i], 2), 1), f"the number at position {i} is odd")
+
+
+def bigger_at(i: int, x) -> Scope:
+    return Scope("value", sp.Gt(L[i], sp.sympify(x)),
+                 f"the number at position {i} is greater than {operand_phrase(x)}")
+
+
+def changed_more(j: int, c: int) -> Scope:
+    return Scope("effect", sp.Gt(_CHANGED[j], c),
+                 f"instruction {j} changed more than {c} numbers")
