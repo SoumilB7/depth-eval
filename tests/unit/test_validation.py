@@ -28,6 +28,14 @@ def test_timeline_kinds():
     assert kinds([Instruction(O["n + x"], 1), MI(V["amplify"], 1)]) == ["dead_edit"]
     assert kinds([Instruction(O["n + x"], 1, hold_until_after=2), MI(V["amplify"], 1)]) == []
     assert kinds([MI(V["unwind"], 2), Instruction(O["n + x"], 1)]) == ["unexecuted_reference"]
+    # a planted reference is judged at the TARGET's turn (blamed on the editor):
+    # rewrite plants Changed[4] into 3; 3 holds until 4 -> order 1,2,4,3 -> legal
+    planted = [MI(V["rewrite"], 3, operand=Changed(4)), Instruction(O["n*x"], 2),
+               Instruction(O["n + x"], 1, hold_until_after=4), Instruction(O["n - x"], 1)]
+    assert kinds(planted, rows=ROWS + [[1, 2, 3]]) == []
+    unheld = [MI(V["rewrite"], 3, operand=Changed(4)), Instruction(O["n*x"], 2),
+              Instruction(O["n + x"], 1), Instruction(O["n - x"], 1)]
+    assert kinds(unheld, rows=ROWS + [[1, 2, 3]]) == ["unexecuted_reference"]
 
 
 def test_position_kinds():

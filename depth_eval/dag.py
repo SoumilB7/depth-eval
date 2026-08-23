@@ -45,6 +45,10 @@ def consumes(instruction) -> set[int]:
     edge that would move anything."""
     refs: set[int] = set()
     exprs = [getattr(instruction, "operand", None)]
+    if isinstance(instruction, MetaInstruction) and instruction.verb.klass == "edit":
+        exprs = []  # a rewrite's operand is PLANTED into the target and
+        #             resolved at the TARGET's turn — the validator judges
+        #             its references from that seat, not the editor's
     if isinstance(instruction, DataLine):
         exprs += [instruction.application.extent.where, instruction.application.gate.where]
     for expr in exprs:

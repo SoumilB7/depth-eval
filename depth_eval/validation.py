@@ -55,7 +55,7 @@ from .dag import consumes, schedule
 from .instructions import ExecutionError, execute
 from .lines import DataLine, Instruction, MoveInstruction
 from .meta.base import MetaInstruction
-from .ops.operands import B, L, P, POS, START, scope_refs
+from .ops.operands import B, L, P, POS, START, effect_refs, scope_refs
 
 
 @dataclass(frozen=True)
@@ -206,6 +206,7 @@ def _static_issues(
     reads: dict[int, set[int]] = {i: set() for i in range(1, k + 1)}      # def: must read first
     needs: dict[int, set[int]] = {}   # results a line consumes: must be behind it
     edits: dict[int, int] = {}        # editor -> target: must still be ahead of it
+    planted: dict[int, set[int]] = {} # editor -> results its operand plants into the target
     broken: set[int] = set()
 
     for i, ins in enumerate(instructions, start=1):
@@ -251,6 +252,19 @@ def _static_issues(
             else:
                 if ins.verb.klass == "edit":
                     edits[i] = ins.target
+                    if ins.operand is not None:
+                        try:
+                            planted[i] = {j for j in effect_refs(ins.operand)}
+                        except ValueError as e:
+                            issues.append(Issue("malformed_operand", i, str(e)))
+                            broken.add(i)
+                        for j in sorted(planted.get(i, ())):
+                            if not 1 <= j <= k:
+                                issues.append(Issue(
+                                    "trigger_out_of_range", i,
+                                    f"instruction {i} plants a reference to instruction {j}, "
+                                    f"but the chain is 1..{k}"))
+                                broken.add(i)
                 if ins.verb.klass in ("read", "edit"):
                     reads[i].add(ins.target)
 
@@ -333,6 +347,17 @@ def _static_issues(
                 issues.append(Issue(
                     "dead_edit", i,
                     f"instruction {i} changes instruction {j}, which has already run by then"))
+        # a planted operand (rewrite's x) is resolved when the TARGET runs:
+        # its references are judged from the target's seat, blamed on the
+        # editor who planted them
+        for i, js in sorted(planted.items()):
+            target = edits[i]
+            for j in sorted(js):
+                if position[j] > position[target]:
+                    issues.append(Issue(
+                        "unexecuted_reference", i,
+                        f"instruction {i} plants the result of instruction {j} into "
+                        f"instruction {target}, but {j} has not run by {target}'s turn"))
 
     return issues
 

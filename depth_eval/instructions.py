@@ -71,8 +71,11 @@ class Step:
     """One application event in the trace (including no-ops)."""
 
     instruction: int      # 1-based listing number
-    x: int | None         # resolved operand value; None for per-element/move/no-op
-    xs: list[int] | None  # the resolved vector for per-element operands
+    x: int | None         # resolved operand value; None for per-element,
+    #                       multi-pass, move and no-op lines (per-pass values
+    #                       live in the execution record)
+    xs: list[int] | None  # the resolved vector for a single-pass per-element
+    #                       operand; None otherwise
     operation: str        # the canonical formula that ran (Application.formula)
     words: str            # the same, worded
     changed: int          # NET count of positions whose value changed
@@ -203,11 +206,16 @@ def execute(
             if not any(mask):
                 raise Dead("scope selects no number")
             passes.append((xs, mask))
-        core = d.op.formula(d.operand) if per_element else d.op.formula(xs[0])
-        words = d.op.wording(d.operand) if per_element else d.op.wording(xs[0])
+        # a multi-pass line re-resolves per pass, so no single x/xs is true
+        # for the whole line — show the symbolic form; the per-pass values
+        # live in the MapRecord
+        symbolic = per_element or d.how.times != 1
+        core = d.op.formula(d.operand) if symbolic else d.op.formula(xs[0])
+        words = d.op.wording(d.operand) if symbolic else d.op.wording(xs[0])
         touched = [any(m[i] for _, m in passes) for i in range(len(seq))]
         record(number, before, touched, MapRecord(d.op, tuple(passes)),
-               None if per_element else xs[0], xs if per_element else None,
+               None if symbolic else xs[0],
+               xs if per_element and d.how.times == 1 else None,
                d.how.formula(core), words)
 
     def run_move(number: int, d: MoveDef) -> None:

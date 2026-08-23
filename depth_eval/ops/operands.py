@@ -22,7 +22,8 @@ composition of these (List[1] + B[0], Abs(Start[p] - List[p]), ...).
 Effect references read what an execution left behind (an Effect record):
     Changed[j]      how many numbers line j changed
     Touched[j, p]   1 if line j applied to position p, else 0  (its scope)
-Both force j to run first. ScopeOf[j] is a placeholder for line j's CURRENT
+Both require j to have run by the reading line's turn (only holds move a
+line in time — validation names the breach). ScopeOf[j] is a placeholder for line j's CURRENT
 scope, substituted by the executor before resolution (a definition read,
 like mirror).
 
@@ -69,10 +70,13 @@ def Changed(j: int) -> sp.Indexed:
     """The count of positions whose value changed when instruction j last
     executed (j is a 1-based instruction listing number). Prints Changed[j].
 
-    An EFFECT reference: resolving it requires instruction j to have already
-    executed, so it creates an exec dependency — the executor auto-holds the
-    referencing instruction until j has run, past or future. With repeats,
-    "last executed" means the most recent execution.
+    An EFFECT reference: resolving it requires instruction j to have
+    already executed. Nothing is reordered for it — only holds move a line
+    in time — so j must be behind the referencing line in the schedule, or
+    that line must carry its own hold until j; otherwise the question is
+    invalid (unexecuted_reference). A reference planted into another line
+    by a rewrite is judged from the TARGET's seat. With repeats, the count
+    is the net over the whole line.
     """
     return _CHANGED[j]
 
