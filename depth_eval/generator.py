@@ -32,7 +32,7 @@ rejections just consume more draws, so the outcome stays deterministic.
 import random
 from dataclasses import dataclass, field
 
-from .application import ALWAYS, TIMES_CHOICES, WHOLE, Application
+from .application import ALWAYS, ORDERS, TIMES_CHOICES, WHOLE, Application
 from .instructions import Instruction, MoveInstruction, Step, execute, render_question
 from .ops.moves import ascending, reverse, rotate, swap
 from .meta import META_VERBS, MetaInstruction
@@ -99,6 +99,10 @@ class GeneratorConfig:
     gate_weights: dict[str, int] = field(
         default_factory=lambda: {"always": 100, "value": 0, "effect": 0}
     )
+    # DRAW 3d — ORDER of a pass ("snapshot" alone = no draw; map lines only)
+    order_weights: dict[str, int] = field(
+        default_factory=lambda: {"snapshot": 100, "forward": 0, "backward": 0}
+    )
     hold_chance: float = 0.25
     include_powers: bool = False  # n**x / x**n explode under chaining
     # the output list must keep at least this fraction of distinct values
@@ -117,6 +121,7 @@ class GeneratorConfig:
         check_weights("scope_weights", self.scope_weights, SCOPE_KINDS)
         check_weights("times_weights", self.times_weights, TIMES_CHOICES)
         check_weights("gate_weights", self.gate_weights, GATE_KINDS)
+        check_weights("order_weights", self.order_weights, ORDERS)
 
 
 @dataclass(frozen=True)
@@ -207,9 +212,12 @@ def _random_application(
     if {k for k, w in config.times_weights.items() if w > 0} != {"1"}:
         times = int(_weighted(rng, config.times_weights))
     gate = _random_gate(rng, config, length, others)
-    if scope is ALL and times == 1 and gate is ALWAYS:
+    order = "snapshot"
+    if extent_allowed and {k for k, w in config.order_weights.items() if w > 0} != {"snapshot"}:
+        order = _weighted(rng, config.order_weights)
+    if scope is ALL and times == 1 and gate is ALWAYS and order == "snapshot":
         return WHOLE
-    return Application(extent=scope, times=times, gate=gate)
+    return Application(extent=scope, times=times, gate=gate, order=order)
 
 
 def _random_instruction(

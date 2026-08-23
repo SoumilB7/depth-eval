@@ -12,12 +12,14 @@ before this type existed:
                                 with no p — resolved at execution; closed =
                                 the line runs as a no-op event, a legal trap)
 
-Declared and executable now: EXTENT, TIMES, GATE. Declared but LOCKED
-(validation rejects them until the decision lands): FORM=permute (needs
-its own line shape — a permute has no op/operand) and ORDER=forward|
-backward (the one axis that changes what "now" means inside a pass; needs
-Soumil's explicit yes). Everything composes: "if …, for every 3rd number
-from position 2, 3 times, add …" is one line with one meaning.
+All five axes execute (ORDER approved 2026-08-26; FORM=permute is the
+MoveInstruction line kind). An ordered pass resolves each element AT ITS
+OWN MOMENT — operand and extent test see the already-updated elements
+before it (forward: left to right; backward: right to left); the gate is
+still checked once, pre-pass; the operand resolves only where the line
+applies. Locked still: ordered or scoped moves. Everything composes: "if
+…, for every 3rd number from position 2, 3 times, add …, moving left to
+right" is one line with one meaning.
 """
 
 from dataclasses import dataclass
@@ -28,7 +30,7 @@ from .ops.scope import ALL, Scope
 
 FORMS = ("map", "permute")
 ORDERS = ("snapshot", "forward", "backward")
-ENABLED = {"form": ("map",), "order": ("snapshot",)}
+ENABLED = {"form": ("map",), "order": ORDERS}
 
 ALWAYS = Scope("always", sp.true, "always")
 

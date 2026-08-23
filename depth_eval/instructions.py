@@ -51,9 +51,11 @@ from .ops import NUMBER_OPS
 from .ops.base import NumberOp
 from .ops.moves import Move
 from .ops.operands import (
+    P,
     SCOPE_OF,
     Effect,
     is_elementwise,
+    resolve,
     resolve_condition,
     resolve_elementwise,
     resolve_mask,
@@ -71,6 +73,10 @@ def _with_list(body: str, exprs, companion: list[int] | None) -> str:
 
 def _decorate(body: str, how: Application, number: int, hold: int | None) -> str:
     """The application and hold wrappings shared by every data line."""
+    if how.order != "snapshot":
+        direction = "left to right" if how.order == "forward" else "right to left"
+        body = (f"{body}, one number at a time moving {direction} "
+                "(each number sees the numbers already updated before it)")
     if how.times != 1:
         body = f"{body}, {how.times} times over"
     if how.gate is not ALWAYS:
@@ -211,8 +217,9 @@ def execute(
             definitions[n] = MapDef(ins.op, ins.operand, ins.application, n)
         elif isinstance(ins, MoveInstruction):
             definitions[n] = MoveDef(ins.move, ins.application)
-    # what actually ran: map -> (op, xs, mask); move -> composed permutation
-    executed: dict[int, tuple[NumberOp, list[int], list[bool]] | list[int] | None] = {}
+    # what actually ran: map -> (op, [(xs, mask) per pass]); move ->
+    # composed permutation. Unwind replays the WHOLE record, in reverse.
+    executed: dict[int, tuple[NumberOp, list] | list[int] | None] = {}
 
     def list_of(owner: int) -> list[int] | None:
         return companions[owner - 1] if companions is not None else None
@@ -244,21 +251,43 @@ def execute(
         if not gate_open(d.how, companion):
             run_noop(number, f"gate closed — {d.how.gate.phrase} does not hold")
             return
-        per_element = is_elementwise(d.operand)
+        per_element = is_elementwise(d.operand) or d.how.order != "snapshot"
         before = seq
+        where_expr = current_scope(d.how.extent.where)
+        passes = []
         for _ in range(d.how.times):  # operands and extent re-resolve every pass
-            xs = resolve_elementwise(d.operand, seq, effects, companion, original)
-            mask = resolve_mask(current_scope(d.how.extent.where), seq, effects, companion, original)
+            if d.how.order == "snapshot":
+                xs = resolve_elementwise(d.operand, seq, effects, companion, original)
+                mask = resolve_mask(where_expr, seq, effects, companion, original)
+                if any(mask):
+                    seq = [d.op.apply(v, xv) if m else v for v, xv, m in zip(seq, xs, mask)]
+            else:
+                # ordered pass: each element at its own moment — operand and
+                # extent test see the already-updated elements before it,
+                # and the operand resolves only where the line applies
+                positions = range(len(seq)) if d.how.order == "forward" else range(len(seq) - 1, -1, -1)
+                seq = list(seq)
+                xs, mask = [0] * len(seq), [False] * len(seq)
+                for i in positions:
+                    if not resolve_condition(sp.sympify(where_expr).subs(P, i),
+                                             seq, effects, companion, original):
+                        continue
+                    xs[i] = resolve(sp.sympify(d.operand).subs(P, i),
+                                    seq, effects, companion, original)
+                    seq[i] = d.op.apply(seq[i], xs[i])
+                    mask[i] = True
             if not any(mask):
                 raise dead("scope selects no number")
-            seq = [d.op.apply(v, xv) if m else v for v, xv, m in zip(seq, xs, mask)]
+            passes.append((xs, mask))
         where = "" if d.how.extent is ALL else f" where {d.how.extent.where}"
         times = "" if d.how.times == 1 else f" x{d.how.times}"
-        operation = (d.op.formula(d.operand) if per_element else d.op.formula(xs[0])) + where + times
+        order = "" if d.how.order == "snapshot" else f" {d.how.order}"
+        operation = (d.op.formula(d.operand) if per_element else d.op.formula(xs[0])) + where + times + order
         words = d.op.wording(d.operand) if per_element else d.op.wording(xs[0])
         changed = sum(1 for old, now in zip(before, seq) if old != now)
-        effects[number] = Effect(changed, tuple(mask))
-        executed[number] = (d.op, xs, mask)
+        touched = tuple(any(m[i] for _, m in passes) for i in range(len(seq)))
+        effects[number] = Effect(changed, touched)
+        executed[number] = (d.op, passes)
         trace.append(Step(number, None if per_element else xs[0], xs if per_element else None,
                           operation, words, changed, list(seq)))
 
@@ -302,12 +331,14 @@ def execute(
                 inverse[s] = i
             seq = [seq[inverse[i]] for i in range(len(seq))]
             xs, mask = None, [record[i] != i for i in range(len(seq))]
-        else:
-            op, xs, mask = record
+        else:  # a map: invert every pass, in reverse order
+            op, passes = record
             if op.inverse is None:
                 raise ValueError(f"cannot undo {op.id} — it has no inverse")
             inverse_op = NUMBER_OPS[op.inverse]
-            seq = [inverse_op.apply(v, xv) if m else v for v, xv, m in zip(seq, xs, mask)]
+            for xs, mask in reversed(passes):
+                seq = [inverse_op.apply(v, xv) if m else v for v, xv, m in zip(seq, xs, mask)]
+            mask = [any(m[i] for _, m in passes) for i in range(len(seq))]
         changed = sum(1 for old, now in zip(before, seq) if old != now)
         effects[number] = Effect(changed, tuple(mask))
         trace.append(Step(number, None, xs, f"undo of instruction {target}",
