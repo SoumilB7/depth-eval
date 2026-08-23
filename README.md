@@ -53,6 +53,7 @@ data   :  15 ops  ×  direct / relative operand  ×  application  ×  hold
            applied to), how many passes, and whether it fires at all
            add, mod, gcd, min, ...       7, List[3], Start[p], B[p],
                                          Pos[p], Changed[j], ...
+moves  :  reverse · rotate · swap · sort   (values move, not change)
 meta   :  mirror · negate · amplify · flip · rewrite · cancel · unwind
            read another instruction, edit its future, or undo its past
 ```

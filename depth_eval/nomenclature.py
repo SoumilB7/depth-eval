@@ -49,7 +49,7 @@ from dataclasses import dataclass
 
 import sympy as sp
 
-from .instructions import Instruction
+from .instructions import Instruction, MoveInstruction
 from .meta.base import MetaInstruction
 from .ops.operands import B, L, P, POS, START, _CHANGED, effect_refs, position_form
 from .ops.scope import SCOPE_KINDS
@@ -63,6 +63,7 @@ DIRECT_KINDS: dict[str, bool] = {
     "origin": True,
     "companion": True,
     "positional": True,
+    "move": True,      # a permute line: reverse / rotate / swap / sort
     "composite": False,
 }
 
@@ -147,18 +148,21 @@ def _data_kind(operand) -> tuple[str, str | None, str]:
 
 def classify(instruction) -> Label:
     tags = ("held",) if instruction.hold_until_after is not None else ()
-    if isinstance(instruction, Instruction):
-        category, group, kind = _data_kind(instruction.operand)
-        how = instruction.application
-        if how.extent.kind == "same":
-            category, group, kind = "relative", "consumes", "definition"
-        elif how.extent.kind == "touched" or effect_refs(how.extent.where) or effect_refs(how.gate.where):
-            category, group, kind = "relative", "consumes", "effect"
-        return Label(category, group, kind, tags, how.marks)
     if isinstance(instruction, MetaInstruction):
         kind = VERB_KIND[instruction.verb.name]
         return Label("relative", RELATIVE_KINDS[kind][0], kind, tags)
-    raise TypeError(f"unknown instruction kind: {type(instruction).__name__}")
+    if isinstance(instruction, Instruction):
+        category, group, kind = _data_kind(instruction.operand)
+    elif isinstance(instruction, MoveInstruction):
+        category, group, kind = "direct", None, "move"
+    else:
+        raise TypeError(f"unknown instruction kind: {type(instruction).__name__}")
+    how = instruction.application
+    if how.extent.kind == "same":
+        category, group, kind = "relative", "consumes", "definition"
+    elif how.extent.kind == "touched" or effect_refs(how.extent.where) or effect_refs(how.gate.where):
+        category, group, kind = "relative", "consumes", "effect"
+    return Label(category, group, kind, tags, how.marks)
 
 
 def type_of(instruction) -> str | None:
@@ -167,6 +171,8 @@ def type_of(instruction) -> str | None:
     for literals, composites, and effect lines."""
     if isinstance(instruction, MetaInstruction):
         return instruction.verb.name
+    if isinstance(instruction, MoveInstruction):
+        return instruction.move.name
     label = classify(instruction)
     if label.category != "direct" or label.kind in ("literal", "composite"):
         return None

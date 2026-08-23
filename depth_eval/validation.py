@@ -43,7 +43,7 @@ import sympy as sp
 
 from .application import ENABLED
 from .dag import own_triggers
-from .instructions import Instruction, execute
+from .instructions import Instruction, MoveInstruction, execute
 from .meta.base import MetaInstruction
 from .ops.operands import B, L, P, POS, START, scope_refs
 
@@ -125,17 +125,34 @@ def _meta_issues(i, ins: MetaInstruction, instructions):
                 "which is itself a meta instruction",
             )
         )
-    elif ins.verb.name in ("negate", "flip", "unwind"):
-        target_op = instructions[ins.target - 1].op
-        if target_op.inverse is None:
+    else:
+        target = instructions[ins.target - 1]
+        if ins.verb.name in ("amplify", "rewrite") and not isinstance(target, Instruction):
             issues.append(
                 Issue(
-                    "not_invertible",
+                    "bad_meta_target",
                     i,
-                    f"instruction {i} wants to {ins.verb.name} {target_op.id}, "
-                    "which has no inverse",
+                    f"instruction {i} wants to {ins.verb.name} instruction "
+                    f"{ins.target}, which has no operand",
                 )
             )
+        elif ins.verb.name in ("negate", "flip") or (
+            ins.verb.name == "unwind" and isinstance(target, Instruction)
+        ):
+            # unwind of a move always works — its permutation is recorded
+            if isinstance(target, Instruction):
+                invertible, what = target.op.inverse is not None, target.op.id
+            else:
+                invertible, what = target.move.inverse() is not None, target.move.name
+            if not invertible:
+                issues.append(
+                    Issue(
+                        "not_invertible",
+                        i,
+                        f"instruction {i} wants to {ins.verb.name} {what}, "
+                        "which has no inverse",
+                    )
+                )
     if ins.verb.takes_operand and ins.operand is None:
         issues.append(
             Issue("malformed_operand", i, f"{ins.verb.name} needs an operand")
@@ -202,6 +219,10 @@ def _static_issues(
                     broken.add(i)
             if how.times < 1:
                 issues.append(Issue("locked_application", i, f"instruction {i}: times must be >= 1"))
+                broken.add(i)
+            if isinstance(ins, MoveInstruction) and how.extent.kind != "all":
+                issues.append(Issue("locked_application", i,
+                                    f"instruction {i}: a scoped move is not enabled yet"))
                 broken.add(i)
         exprs = (getattr(ins, "operand", None),) + ((how.extent.where, how.gate.where) if how else ())
         for expr in exprs:

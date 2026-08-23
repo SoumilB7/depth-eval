@@ -33,7 +33,8 @@ import random
 from dataclasses import dataclass, field
 
 from .application import WHOLE, Application
-from .instructions import Instruction, Step, execute, render_question
+from .instructions import Instruction, MoveInstruction, Step, execute, render_question
+from .ops.moves import ascending, reverse, rotate, swap
 from .meta import META_VERBS, MetaInstruction
 from .nomenclature import CATEGORIES, DIRECT_KINDS, RELATIVE_KINDS, check_weights
 from .ops.scope import ALL, SCOPE_KINDS, above, even, odd, same_as, span, stride, touched, untouched
@@ -68,6 +69,7 @@ class GeneratorConfig:
             "origin": 15,      # Start[k] | Start[p]  (type fixed|own: uniform)
             "companion": 15,   # B[k] | B[p] — this line's private list
             "positional": 10,  # Pos[p] — the element's own position
+            "move": 0,         # a permute line: reverse/rotate/swap/sort
         }
     )
     # DRAW 2b — kind within RELATIVE (how the line couples to another)
@@ -129,8 +131,11 @@ def _weighted(rng: random.Random, weights: dict[str, int]) -> str:
     return rng.choices(list(live), weights=list(live.values()))[0]
 
 
-def _direct_operand(rng: random.Random, config: GeneratorConfig, length: int):
-    kind = _weighted(rng, config.direct_weights)
+def _direct_operand(rng: random.Random, config: GeneratorConfig, length: int, kind: str | None = None):
+    """kind: pass the already-drawn direct kind; None draws one here
+    (excluding "move" — an operand cannot be a permutation)."""
+    if kind is None:
+        kind = _weighted(rng, {k: w for k, w in config.direct_weights.items() if k != "move"})
     if kind == "live":
         return At(rng.randint(0, length - 1))
     if kind in ("origin", "companion"):
@@ -185,8 +190,21 @@ def _random_instruction(
         return None
 
     if category == "direct":
+        kind = _weighted(rng, {k: v for k, v in config.direct_weights.items()})
+        if kind == "move":
+            pick = rng.randint(0, 3)
+            if pick == 0:
+                move = reverse()
+            elif pick == 1:
+                move = rotate(rng.randint(1, length - 1))
+            elif pick == 2:
+                a = rng.randint(0, length - 1)
+                move = swap(a, rng.choice([j for j in range(length) if j != a]))
+            else:
+                move = ascending()
+            return MoveInstruction(move, hold_until_after=hold())
         op = NUMBER_OPS[rng.choice(pool)]
-        operand = _direct_operand(rng, config, length)
+        operand = _direct_operand(rng, config, length, kind)
         how = _random_application(rng, config, length, others)
         return Instruction(op, operand, hold_until_after=hold(), application=how)
 

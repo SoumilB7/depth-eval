@@ -12,7 +12,8 @@
     "live": 25,
     "origin": 20,
     "companion": 20,
-    "positional": 15
+    "positional": 15,
+    "move": 8
   },
   "relative_weights": {
     "effect": 35,
