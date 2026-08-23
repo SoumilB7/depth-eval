@@ -19,7 +19,8 @@ Static issues (structure alone):
 - companion_required   : a line's text reads B but the question gave that
   line no private list.
 - bad_meta_target      : a meta verb aimed at another meta instruction
-  (v1: verbs target data instructions only).
+  (v1: verbs target data instructions only) — or a scope of "the same
+  numbers as j" where j is a meta line (it has no scope).
 - not_invertible       : negate/flip/unwind aimed at an op with no inverse
   (min, mod, floor-divide, ...).
 - malformed_operand    : non-integer positions or instruction references,
@@ -29,6 +30,8 @@ Static issues (structure alone):
 Dynamic issues (need the actual list, found by trial run):
 - undefined_operation  : an op hits an undefined point (division by zero,
   inexact unwind, ...) or an operand fails to resolve at execution time.
+- empty_scope          : a line's scope selects no number at execution
+  time — a dead line; never shipped.
 """
 
 from dataclasses import dataclass
@@ -38,7 +41,7 @@ import sympy as sp
 from .dag import own_triggers
 from .instructions import Instruction, execute
 from .meta.base import MetaInstruction
-from .ops.operands import B, L, P, POS, START
+from .ops.operands import B, L, P, POS, START, scope_refs
 
 
 @dataclass(frozen=True)
@@ -183,14 +186,28 @@ def _static_issues(
             elif ins.verb.klass == "edit":
                 deps[ins.target].add(i)  # target waits for its editor
 
-        if getattr(ins, "operand", None) is not None:
-            companion_length = None
-            if companions is not None and i - 1 < len(companions):
-                companion_length = len(companions[i - 1])
-            operand_found = _operand_issues(i, ins.operand, length, companion_length)
-            issues.extend(operand_found)
-            if operand_found:
-                broken.add(i)
+        companion_length = None
+        if companions is not None and i - 1 < len(companions):
+            companion_length = len(companions[i - 1])
+        scope = getattr(ins, "scope", None)
+        for expr in (getattr(ins, "operand", None), scope.where if scope else None):
+            if expr is not None:
+                found = _operand_issues(i, expr, length, companion_length)
+                issues.extend(found)
+                if found:
+                    broken.add(i)
+        for j in (scope_refs(scope.where) if scope else ()):
+            if j == i:
+                issues.append(Issue("self_reference", i, f"instruction {i} scopes on itself"))
+            elif not 1 <= j <= k:
+                issues.append(Issue("trigger_out_of_range", i,
+                                    f"instruction {i} scopes on instruction {j}, but the chain is 1..{k}"))
+            elif isinstance(instructions[j - 1], MetaInstruction):
+                issues.append(Issue("bad_meta_target", i,
+                                    f"instruction {i} scopes on instruction {j}, which has no scope"))
+            else:
+                continue
+            broken.add(i)
 
     # cycles: walk depth-first over sane deps; a back edge = a cycle
     state: dict[int, int] = {}  # 0/absent=unvisited, 1=in progress, 2=done
@@ -252,5 +269,5 @@ def validate(
         execute(instructions, start, companions)
     except (ValueError, ZeroDivisionError) as e:
         number = getattr(e, "instruction", 0)
-        issues.append(Issue("undefined_operation", number, str(e)))
+        issues.append(Issue(getattr(e, "kind", None) or "undefined_operation", number, str(e)))
     return issues

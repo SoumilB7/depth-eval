@@ -13,9 +13,10 @@ Two seeds, two responsibilities, never mixed:
                       only this one, in this order per instruction slot:
                         1. CATEGORY  direct | relative   (the nomenclature)
                         2. KIND      within the category (weighted)
-                        3. variant   e.g. fixed vs matching position (uniform)
+                        3. variant   e.g. fixed vs own position (uniform)
                         4. numbers   op, positions, literals, targets
-                        5. hold      one gate, then a target
+                        5. SCOPE     which positions a data line touches
+                        6. hold      one gate, then a target
                       The forced nomenclature IS the first probability
                       distribution of instruction creation; the kind tables
                       live in nomenclature.py and configs are validated
@@ -33,6 +34,7 @@ from dataclasses import dataclass, field
 from .instructions import Instruction, Step, execute, render_question
 from .meta import META_VERBS, MetaInstruction
 from .nomenclature import CATEGORIES, DIRECT_KINDS, RELATIVE_KINDS, check_weights
+from .ops.scope import ALL, SCOPE_KINDS, above, even, odd, same_as, span, stride, touched, untouched
 from .ops import NUMBER_OPS, At, B, Changed, P, POS, START
 from .sequence import make_sequences
 from .validation import validate
@@ -76,6 +78,14 @@ class GeneratorConfig:
             "erase": 0,        # cancel
         }
     )
+    # DRAW 3 — the SCOPE of a data line (which positions it touches).
+    # {"all": 100} alone means every line touches every number AND changes
+    # no draw order — old states keep producing identical questions.
+    scope_weights: dict[str, int] = field(
+        default_factory=lambda: {
+            "all": 100, "stride": 0, "span": 0, "value": 0, "touched": 0, "same": 0
+        }
+    )
     hold_chance: float = 0.25
     include_powers: bool = False  # n**x / x**n explode under chaining
     # the output list must keep at least this fraction of distinct values
@@ -91,6 +101,7 @@ class GeneratorConfig:
             [k for k, drawn in DIRECT_KINDS.items() if drawn],
         )
         check_weights("relative_weights", self.relative_weights, RELATIVE_KINDS)
+        check_weights("scope_weights", self.scope_weights, SCOPE_KINDS)
 
 
 @dataclass(frozen=True)
@@ -129,6 +140,28 @@ def _direct_operand(rng: random.Random, config: GeneratorConfig, length: int):
     return rng.randint(config.literal_low, config.literal_high)
 
 
+def _random_scope(rng: random.Random, config: GeneratorConfig, length: int, others: list[int]):
+    if {k for k, w in config.scope_weights.items() if w > 0} == {"all"}:
+        return ALL  # no draw: the stream is untouched
+    kind = _weighted(rng, config.scope_weights)
+    if kind == "stride":
+        step = rng.randint(2, 4)
+        return stride(step, rng.randint(0, step - 1), length, from_end=rng.random() < 0.5)
+    if kind == "span":
+        a = rng.randint(0, length - 2)
+        return span(a, rng.randint(a + 1, length - 1))
+    if kind == "value":
+        pick = rng.randint(0, 2)
+        return even() if pick == 0 else odd() if pick == 1 else above(
+            rng.randint(config.literal_low, config.literal_high))
+    if kind == "touched" and others:
+        j = rng.choice(others)
+        return touched(j) if rng.random() < 0.5 else untouched(j)
+    if kind == "same" and others:
+        return same_as(rng.choice(others))
+    return ALL
+
+
 def _random_instruction(
     rng: random.Random, config: GeneratorConfig, steps: int, length: int,
     pool: list[str], number: int
@@ -145,12 +178,15 @@ def _random_instruction(
     if category == "direct":
         op = NUMBER_OPS[rng.choice(pool)]
         operand = _direct_operand(rng, config, length)
-        return Instruction(op, operand, hold_until_after=hold())
+        scope = _random_scope(rng, config, length, others)
+        return Instruction(op, operand, hold_until_after=hold(), scope=scope)
 
     kind = _weighted(rng, config.relative_weights)
     if kind == "effect":
         op = NUMBER_OPS[rng.choice(pool)]
-        return Instruction(op, Changed(rng.choice(others)), hold_until_after=hold())
+        operand = Changed(rng.choice(others))
+        scope = _random_scope(rng, config, length, others)
+        return Instruction(op, operand, hold_until_after=hold(), scope=scope)
     verb = META_VERBS[rng.choice(RELATIVE_KINDS[kind][1])]
     target = rng.choice(others)
     operand = _direct_operand(rng, config, length) if verb.takes_operand else None

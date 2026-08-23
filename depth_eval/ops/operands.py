@@ -19,6 +19,13 @@ Other operand parts: a literal Integer(4); Changed(j), the count of numbers
 instruction j changed (an effect reference — see below); and any SymPy
 composition of these (List[1] + B[0], Abs(Start[p] - List[p]), ...).
 
+Effect references read what an execution left behind (an Effect record):
+    Changed[j]      how many numbers line j changed
+    Touched[j, p]   1 if line j applied to position p, else 0  (its scope)
+Both force j to run first. ScopeOf[j] is a placeholder for line j's CURRENT
+scope, substituted by the executor before resolution (a definition read,
+like mirror).
+
 Scalar operands (no p) resolve ONCE per instruction to a single integer.
 Per-element operands (containing p) resolve to a VECTOR — one integer per
 position — still in one snapshot BEFORE the pass: List references read the
@@ -36,6 +43,8 @@ including an offset that runs off the end — makes the operand unresolvable
 (no wrapping; the question generator must never emit it).
 """
 
+from dataclasses import dataclass
+
 import sympy as sp
 
 L = sp.IndexedBase("List", integer=True)
@@ -45,6 +54,8 @@ POS = sp.IndexedBase("Pos", integer=True)
 P = sp.Symbol("p", integer=True, nonnegative=True)
 
 _CHANGED = sp.IndexedBase("Changed", integer=True)
+TOUCHED = sp.IndexedBase("Touched", integer=True)
+SCOPE_OF = sp.IndexedBase("ScopeOf", integer=True)
 
 APPLIER_NAMES = {L: "the list", START: "the starting list", B: "this line's list B"}
 
@@ -66,8 +77,16 @@ def Changed(j: int) -> sp.Indexed:
     return _CHANGED[j]
 
 
+@dataclass(frozen=True)
+class Effect:
+    """What one execution left behind."""
+
+    changed: int          # count of numbers whose value changed
+    touched: tuple        # per position: did the line apply there? (its scope)
+
+
 def _is_effect_ref(e) -> bool:
-    return isinstance(e, sp.Indexed) and e.base == _CHANGED
+    return isinstance(e, sp.Indexed) and e.base in (_CHANGED, TOUCHED)
 
 
 def _is_list_ref(e) -> bool:
@@ -96,17 +115,23 @@ def uses_companion(operand) -> bool:
     return any(_is_companion_ref(e) for e in sp.sympify(operand).atoms(sp.Indexed))
 
 
-def effect_refs(operand) -> set[int]:
-    """Instruction numbers whose effect the operand references."""
+def effect_refs(expr) -> set[int]:
+    """Instruction numbers whose effect the expression references."""
     refs = set()
-    for e in sp.sympify(operand).atoms(sp.Indexed):
+    for e in sp.sympify(expr).atoms(sp.Indexed):
         if not _is_effect_ref(e):
             continue
         j = e.indices[0]
         if not j.is_Integer:
-            raise ValueError(f"non-integer instruction reference in {operand}")
+            raise ValueError(f"non-integer instruction reference in {expr}")
         refs.add(int(j))
     return refs
+
+
+def scope_refs(expr) -> set[int]:
+    """Instruction numbers whose current SCOPE the expression reads (ScopeOf[j])."""
+    return {int(e.indices[0]) for e in sp.sympify(expr).atoms(sp.Indexed)
+            if e.base == SCOPE_OF and e.indices[0].is_Integer}
 
 
 def position_form(index) -> str:
@@ -124,15 +149,24 @@ def position_form(index) -> str:
 
 
 def _lookup(ref: sp.Indexed, seq, effects, companion, original) -> sp.Integer:
-    """Resolve one reference whose position is already a concrete integer."""
+    """Resolve one reference whose indices are already concrete integers."""
+    base = ref.base
+    if base in (_CHANGED, TOUCHED):
+        j = int(ref.indices[0])
+        if effects is None or j not in effects:
+            raise ValueError(f"instruction {j} has not executed — {ref} unresolvable")
+        if base == _CHANGED:
+            return sp.Integer(effects[j].changed)
+        touched = effects[j].touched
+        i = int(ref.indices[1])
+        if not 0 <= i < len(touched):
+            raise ValueError(f"position {i} out of range 0..{len(touched) - 1} in {ref}")
+        return sp.Integer(1 if touched[i] else 0)
+    if base == SCOPE_OF:
+        raise ValueError(f"{ref} must be substituted by the executor before resolving")
     if len(ref.indices) != 1:
         raise ValueError(f"reference {ref} takes exactly one position")
     i = int(ref.indices[0])
-    base = ref.base
-    if base == _CHANGED:
-        if effects is None or i not in effects:
-            raise ValueError(f"instruction {i} has not executed — {ref} unresolvable")
-        return sp.Integer(effects[i])
     if base == L:
         values, name = seq, "the list"
     elif base == START:
@@ -152,14 +186,13 @@ def _lookup(ref: sp.Indexed, seq, effects, companion, original) -> sp.Integer:
     return sp.Integer(values[i])
 
 
-def _collapse(expr, seq, effects, companion, original) -> int:
-    """Fully resolve an expression to an integer. References resolve
-    inside-out: any reference whose position is already concrete is
-    replaced, repeatedly, so List[List[0]] works. companion is THIS
-    instruction's private list (or None if it has none)."""
+def _substitute(expr, seq, effects, companion, original):
+    """Replace every reference whose indices are concrete, repeatedly —
+    inside-out, so List[List[0]] works. companion is THIS instruction's
+    private list (or None if it has none)."""
     result = expr
     for _ in range(16):  # nesting depth bound — far beyond any real operand
-        ready = [r for r in result.atoms(sp.Indexed) if r.indices and r.indices[0].is_Integer]
+        ready = [r for r in result.atoms(sp.Indexed) if all(i.is_Integer for i in r.indices)]
         if not ready:
             break
         result = result.xreplace(
@@ -168,15 +201,34 @@ def _collapse(expr, seq, effects, companion, original) -> int:
     left = result.atoms(sp.Indexed)
     if left:
         raise ValueError(f"unresolvable position in {sorted(map(str, left))} of {expr}")
+    return result
+
+
+def _collapse(expr, seq, effects, companion, original) -> int:
+    """Fully resolve an expression to an integer."""
+    result = _substitute(expr, seq, effects, companion, original)
     if result.is_Integer is not True:
         raise ValueError(f"operand {expr} did not resolve to an integer")
     return int(result)
 
 
+def resolve_mask(where, seq, effects=None, companion=None, original=None) -> list[bool]:
+    """Resolve a scope's boolean per position, in one snapshot."""
+    if where == sp.true:
+        return [True] * len(seq)
+    mask = []
+    for i in range(len(seq)):
+        result = _substitute(sp.sympify(where).subs(P, i), seq, effects, companion, original)
+        if result not in (sp.true, sp.false):
+            raise ValueError(f"scope {where} did not resolve to yes/no at position {i}")
+        mask.append(result == sp.true)
+    return mask
+
+
 def resolve(
     operand,
     seq: list[int],
-    effects: dict[int, int] | None = None,
+    effects: dict[int, Effect] | None = None,
     companion: list[int] | None = None,
     original: list[int] | None = None,
 ) -> int:
@@ -190,7 +242,7 @@ def resolve(
 def resolve_elementwise(
     operand,
     seq: list[int],
-    effects: dict[int, int] | None = None,
+    effects: dict[int, Effect] | None = None,
     companion: list[int] | None = None,
     original: list[int] | None = None,
 ) -> list[int]:
@@ -211,7 +263,7 @@ def resolve_elementwise(
 def resolvable(
     operand,
     seq: list[int],
-    effects: dict[int, int] | None = None,
+    effects: dict[int, Effect] | None = None,
     companion: list[int] | None = None,
     original: list[int] | None = None,
 ) -> bool:
@@ -235,7 +287,7 @@ def phrase(operand) -> str:
     position'. Composites fall back to their formula — structure to
     string, one way, as always."""
     expr = sp.sympify(operand)
-    if _is_effect_ref(expr):
+    if isinstance(expr, sp.Indexed) and expr.base == _CHANGED:
         return f"the count of numbers instruction {expr.indices[0]} changed"
     if expr == P:
         return "its own position"

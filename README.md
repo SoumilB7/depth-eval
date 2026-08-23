@@ -47,7 +47,9 @@ capability surface.
 ## The instruction space
 
 ```
-data   :  15 ops  ×  direct / relative operand  ×  optional hold
+data   :  15 ops  ×  direct / relative operand  ×  scope  ×  optional hold
+           scope: every number · every 3rd from position 2 · positions 2–5 ·
+                  every even number · the numbers line 4 applied to
            add, mod, gcd, min, ...       7, List[3], Start[p], B[p],
                                          Pos[p], Changed[j], ...
 meta   :  mirror · negate · amplify · flip · rewrite · cancel · unwind

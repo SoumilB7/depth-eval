@@ -7,6 +7,7 @@ means two entries for the same function collide, and the assert catches it.
 
 from .arithmetic import ARITHMETIC_OPS
 from .base import Gcd, Lcm, NumberOp, n, x
+from .scope import ALL, SCOPE_KINDS, Scope, above, even, odd, same_as, span, stride, touched, untouched
 from .operands import (
     At,
     B,
@@ -16,6 +17,8 @@ from .operands import (
     START,
     effect_refs,
     position_form,
+    resolve_mask,
+    scope_refs,
     is_elementwise,
     resolvable,
     resolve,
@@ -44,4 +47,17 @@ __all__ = [
     "resolve",
     "resolve_elementwise",
     "resolvable",
+    "resolve_mask",
+    "scope_refs",
+    "Scope",
+    "ALL",
+    "SCOPE_KINDS",
+    "stride",
+    "span",
+    "even",
+    "odd",
+    "above",
+    "touched",
+    "untouched",
+    "same_as",
 ]

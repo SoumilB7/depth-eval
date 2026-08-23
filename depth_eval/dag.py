@@ -3,13 +3,13 @@
 Nodes are the listed instructions (1-based). Two edge kinds exist:
 
 - "exec"  j => i : i cannot RUN until j has run. Sources: explicit holds,
-  effect references (Changed(j) in an operand), undo verbs (unwind needs
-  the target's execution record), and EDIT verbs — reversed: the edit
-  creates exec editor => target, so the TARGET parks until its editor has
-  run (its definition isn't final before that).
-- "def"   j -> i : i cannot be INTERPRETED without j's listed text — read
-  verbs (mirror/negate) and edit verbs create these. Def edges never
-  reorder anything; interpretation always uses the static listing.
+  effect references (Changed[j] / Touched[j, p] in an operand or a scope),
+  undo verbs (unwind needs the target's execution record), and EDIT verbs
+  — reversed: the edit creates exec editor => target, so the TARGET parks
+  until its editor has run (its definition isn't final before that).
+- "def"   j -> i : i cannot be INTERPRETED without j's text — read verbs
+  (mirror/negate), edit verbs, and a scope of "the same numbers as j"
+  (ScopeOf[j]) create these. Def edges never reorder anything.
 
 Scheduling walks the listing in order; an instruction whose exec
 dependencies aren't all satisfied parks and is released immediately after
@@ -25,7 +25,7 @@ of range) raise; the question generator must never emit them.
 from dataclasses import dataclass
 
 from .meta.base import MetaInstruction
-from .ops.operands import effect_refs
+from .ops.operands import effect_refs, scope_refs
 
 
 @dataclass(frozen=True)
@@ -38,8 +38,10 @@ class Edge:
 def own_triggers(instruction) -> set[int]:
     """Exec dependencies an instruction declares for ITSELF."""
     refs: set[int] = set()
-    if getattr(instruction, "operand", None) is not None:
-        refs |= effect_refs(instruction.operand)
+    scope = getattr(instruction, "scope", None)
+    for expr in (getattr(instruction, "operand", None), scope.where if scope else None):
+        if expr is not None:
+            refs |= effect_refs(expr)
     if instruction.hold_until_after is not None:
         refs.add(instruction.hold_until_after)
     if isinstance(instruction, MetaInstruction) and instruction.verb.klass == "undo":
@@ -66,6 +68,9 @@ def build_edges(instructions) -> list[Edge]:
     for n, ins in enumerate(instructions, start=1):
         if isinstance(ins, MetaInstruction) and ins.verb.klass in ("read", "edit"):
             edges.append(Edge("def", ins.target, n))
+        scope = getattr(ins, "scope", None)
+        if scope is not None:
+            edges += [Edge("def", j, n) for j in sorted(scope_refs(scope.where))]
     return edges
 
 

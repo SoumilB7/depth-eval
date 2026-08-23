@@ -5,7 +5,8 @@ from .instructions import EditStep, Instruction, Step, execute, render_question
 from .meta import META_VERBS, MetaInstruction, MetaVerb
 from .nomenclature import Label, classify, mix, split, type_of
 from .validation import Issue, validate
-from .ops import NUMBER_OPS, At, B, Changed, NumberOp, P, POS, START, resolvable, resolve
+from .ops import (ALL, NUMBER_OPS, At, B, Changed, NumberOp, P, POS, START, Scope, above,
+                  even, odd, resolvable, resolve, same_as, span, stride, touched, untouched)
 from .sequence import make_sequence, make_sequences
 
 __all__ = [
@@ -24,6 +25,16 @@ __all__ = [
     "POS",
     "START",
     "Changed",
+    "Scope",
+    "ALL",
+    "stride",
+    "span",
+    "even",
+    "odd",
+    "above",
+    "touched",
+    "untouched",
+    "same_as",
     "resolve",
     "resolvable",
     "Instruction",

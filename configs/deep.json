@@ -21,6 +21,14 @@
     "alter": 25,
     "erase": 15
   },
+  "scope_weights": {
+    "all": 70,
+    "stride": 10,
+    "span": 5,
+    "value": 8,
+    "touched": 5,
+    "same": 2
+  },
   "hold_chance": 0.4,
   "include_powers": false,
   "min_distinct_fraction": 0.3,
