@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from .instructions import Instruction, Step, execute, render_question
 from .meta import META_VERBS, MetaInstruction
 from .nomenclature import CATEGORIES, DIRECT_KINDS, RELATIVE_KINDS, check_weights
-from .ops import NUMBER_OPS, At, B, Changed, P, START
+from .ops import NUMBER_OPS, At, B, Changed, P, POS, START
 from .sequence import make_sequences
 from .validation import validate
 
@@ -61,9 +61,9 @@ class GeneratorConfig:
         default_factory=lambda: {
             "literal": 40,     # a plain number
             "live": 20,        # List[i]  — current value at a fixed position
-            "origin": 15,      # Start[i] or Start[p]  (variant: uniform)
-            "companion": 15,   # B[i] or B[p] — this line's private list
-            "positional": 10,  # p — the element's own position
+            "origin": 15,      # Start[k] | Start[p]  (type fixed|own: uniform)
+            "companion": 15,   # B[k] | B[p] — this line's private list
+            "positional": 10,  # Pos[p] — the element's own position
         }
     )
     # DRAW 2b — kind within RELATIVE (how the line couples to another)
@@ -120,12 +120,12 @@ def _direct_operand(rng: random.Random, config: GeneratorConfig, length: int):
     kind = _weighted(rng, config.direct_weights)
     if kind == "live":
         return At(rng.randint(0, length - 1))
-    if kind == "origin":
-        return START[P] if rng.random() < 0.5 else START[rng.randint(0, length - 1)]
-    if kind == "companion":
-        return B[P] if rng.random() < 0.5 else B[rng.randint(0, length - 1)]
+    if kind in ("origin", "companion"):
+        applier = START if kind == "origin" else B
+        own = rng.random() < 0.5  # type: own | fixed (uniform today)
+        return applier[P] if own else applier[rng.randint(0, length - 1)]
     if kind == "positional":
-        return P
+        return POS[P]
     return rng.randint(config.literal_low, config.literal_high)
 
 

@@ -12,8 +12,10 @@ Static issues (structure alone):
   circle — the infinite-loop state; nothing in the cycle can ever run).
 - blocked              : depends, possibly transitively, on a broken
   instruction, so it can never run either.
-- position_out_of_range: List/Start position outside the list, or a B
-  position outside the line's private list.
+- position_out_of_range: a fixed position outside the list (List/Start/
+  Pos) or outside the line's private list (B). Own/offset/indirect
+  positions are checked by the trial run (an offset off the end is
+  undefined — no wrapping).
 - companion_required   : a line's text reads B but the question gave that
   line no private list.
 - bad_meta_target      : a meta verb aimed at another meta instruction
@@ -36,7 +38,7 @@ import sympy as sp
 from .dag import own_triggers
 from .instructions import Instruction, execute
 from .meta.base import MetaInstruction
-from .ops.operands import B, L, P, START
+from .ops.operands import B, L, P, POS, START
 
 
 @dataclass(frozen=True)
@@ -50,7 +52,7 @@ def _operand_issues(i, operand, length, companion_length):
     """companion_length: length of THIS line's private list, None if none."""
     issues = []
     for ref in sp.sympify(operand).atoms(sp.Indexed):
-        if ref.base == L or ref.base == START:
+        if ref.base == L or ref.base == START or ref.base == POS:
             source, size = "the list", length
         elif ref.base == B:
             if companion_length is None:
@@ -75,8 +77,8 @@ def _operand_issues(i, operand, length, companion_length):
             )
             continue
         pos = ref.indices[0]
-        if pos.has(P):
-            continue  # position-dependent index; checked by the trial run
+        if pos.has(P) or pos.atoms(sp.Indexed):
+            continue  # own/offset/indirect position; checked by the trial run
         if not pos.is_Integer:
             issues.append(
                 Issue("malformed_operand", i, f"non-integer position {pos} in operand")

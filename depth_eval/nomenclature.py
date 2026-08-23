@@ -9,16 +9,18 @@ RELATIVE = coupled to another instruction — it takes another instruction's
 output as its input, or it changes another instruction's output.
 DIRECT   = everything else. Reading DATA is not relative: the live list
 (List[0]), its origin (Start), the instruction's own private list (B), and
-positions are data, not another instruction's output.
+the positions (Pos) are data, not another instruction's output.
 
-    DIRECT
-      literal      n + 7
-      live         List[i]            current list, read at execution
-      origin       Start[i], Start[p] the list as it was at the start
-      companion    B[i], B[p]         this instruction's own private list
-      positional   p                  the element's own index (bare p only;
-                                       p inside an index selects an element)
-      composite    a mix of the above sources (List[1] + B[0])
+Every direct reference is APPLIER[POSITION]; the direct KIND is the
+applier, the direct TYPE is the position form:
+
+    DIRECT      kind          applier            types (position form)
+      literal   a plain number                    —
+      live      List[…]       the live list      fixed | own | offset | indirect
+      origin    Start[…]      the starting list  fixed | own | offset | indirect
+      companion B[…]          this line's list   fixed | own | offset | indirect
+      positional Pos[…]       the positions      own (p) | fixed (a number)
+      composite a mix of the above sources
     RELATIVE
       consumes — uses another instruction's output as input
         effect       Changed[j]
@@ -43,7 +45,7 @@ import sympy as sp
 
 from .instructions import Instruction
 from .meta.base import MetaInstruction
-from .ops.operands import B, L, P, START, _CHANGED
+from .ops.operands import B, L, P, POS, START, _CHANGED, position_form
 
 CATEGORIES = ("direct", "relative")
 
@@ -56,6 +58,9 @@ DIRECT_KINDS: dict[str, bool] = {
     "positional": True,
     "composite": False,
 }
+
+# direct types = position forms; the generator draws only the first two today
+POSITION_FORMS = ("fixed", "own", "offset", "indirect")
 
 # relative kinds: name -> (group, verbs). "effect" is a data line with a
 # Changed[j] operand, so it has no verb.
@@ -70,6 +75,8 @@ RELATIVE_KINDS: dict[str, tuple[str, tuple[str, ...]]] = {
 VERB_KIND: dict[str, str] = {
     verb: kind for kind, (_, verbs) in RELATIVE_KINDS.items() for verb in verbs
 }
+
+_APPLIER_KIND = {L: "live", START: "origin", B: "companion", POS: "positional"}
 
 
 def check_weights(name: str, weights: dict, allowed) -> None:
@@ -101,21 +108,23 @@ class Label:
         return path + "".join(f"+{t}" for t in self.tags)
 
 
+def _outer_refs(expr) -> list[sp.Indexed]:
+    """References not nested inside another reference's position."""
+    refs = expr.atoms(sp.Indexed)
+    inner = set()
+    for r in refs:
+        for idx in r.indices:
+            inner |= sp.sympify(idx).atoms(sp.Indexed)
+    return [r for r in refs if r not in inner]
+
+
 def _data_kind(operand) -> tuple[str, str | None, str]:
     expr = sp.sympify(operand)
     refs = expr.atoms(sp.Indexed)
     if any(r.base == _CHANGED for r in refs):
         return "relative", "consumes", "effect"
-    sources = set()
-    if any(r.base == L for r in refs):
-        sources.add("live")
-    if any(r.base == START for r in refs):
-        sources.add("origin")
-    if any(r.base == B for r in refs):
-        sources.add("companion")
-    # p counts as positional only when it stands on its own — inside an
-    # index (Start[p], B[p]) it just selects the matching element of that
-    # source, so the source is what the instruction reads.
+    sources = {_APPLIER_KIND[r.base] for r in _outer_refs(expr) if r.base in _APPLIER_KIND}
+    # bare p (outside any bracket) is Pos[p] by convention
     bare = expr.replace(lambda e: isinstance(e, sp.Indexed), lambda e: sp.Integer(0))
     if bare.has(P):
         sources.add("positional")
@@ -135,6 +144,22 @@ def classify(instruction) -> Label:
         kind = VERB_KIND[instruction.verb.name]
         return Label("relative", RELATIVE_KINDS[kind][0], kind, tags)
     raise TypeError(f"unknown instruction kind: {type(instruction).__name__}")
+
+
+def type_of(instruction) -> str | None:
+    """The TYPE beneath the kind: for direct reference kinds the position
+    form (fixed | own | offset | indirect); for meta lines the verb; None
+    for literals, composites, and effect lines."""
+    if isinstance(instruction, MetaInstruction):
+        return instruction.verb.name
+    label = classify(instruction)
+    if label.category != "direct" or label.kind in ("literal", "composite"):
+        return None
+    expr = sp.sympify(instruction.operand)
+    if expr == P:
+        return "own"
+    outer = _outer_refs(expr)
+    return position_form(outer[0].indices[0]) if len(outer) == 1 else None
 
 
 def mix(instructions) -> dict[str, int]:

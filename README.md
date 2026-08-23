@@ -49,7 +49,7 @@ capability surface.
 ```
 data   :  15 ops  ×  direct / relative operand  ×  optional hold
            add, mod, gcd, min, ...       7, List[3], Start[p], B[p],
-                                         Changed[j], p, ...
+                                         Pos[p], Changed[j], ...
 meta   :  mirror · negate · amplify · flip · rewrite · cancel · unwind
            read another instruction, edit its future, or undo its past
 ```

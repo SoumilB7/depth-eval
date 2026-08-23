@@ -1,49 +1,57 @@
 """Operands — what x resolves from.
 
-The operand of an operation is itself a SymPy expression built from:
-- a literal:              Integer(4)
-- a list reference:       At(4) == List[4] — the value at 0-indexed position 4
-                          of the CURRENT list (execution time)
-- an original reference:  Start[4] — the value the ORIGINAL list held at
-                          position 4; Start[P] — the element's own original
-                          value (frozen, never affected by instructions)
-- a companion reference:  B[4] — position 4 of THIS INSTRUCTION'S private
-                          list; B[P] — the matching element of it
-- an effect reference:    Changed(j) — see below
-- the element's position: P (prints `p`) — each element's own 0-indexed index
-- any composition:        At(4) + 1, B[P] - P, Abs(At(2) - At(9)), ...
+Every reference is one shape:   APPLIER [ POSITION ]
 
-Scalar operands (no P) resolve ONCE per instruction to a single integer.
-Per-element operands (containing P) resolve to a VECTOR — one integer per
+    APPLIER   List    the live list, read at execution time
+              Start   the list as it was at the very start (frozen)
+              B       this line's private list (frozen)
+              Pos     the positions themselves: 0, 1, 2, ... (frozen)
+    POSITION  k       a fixed number            -> scalar, one x for all
+              p       each element's own index  -> vector, one x per element
+              p+1     an offset from its own    -> vector; off the end = undefined
+              List[0] a position read from data -> resolved inside-out
+
+Two shorthands, stated to the evaluated model as conventions:
+    n  ≡ List[p]   ("the number")
+    p  ≡ Pos[p]    ("its own position")
+
+Other operand parts: a literal Integer(4); Changed(j), the count of numbers
+instruction j changed (an effect reference — see below); and any SymPy
+composition of these (List[1] + B[0], Abs(Start[p] - List[p]), ...).
+
+Scalar operands (no p) resolve ONCE per instruction to a single integer.
+Per-element operands (containing p) resolve to a VECTOR — one integer per
 position — still in one snapshot BEFORE the pass: List references read the
-current list as it stands when the instruction executes, never mid-pass.
-Either way, ops only ever receive plain integers.
+list as it stands when the instruction executes, never mid-pass. Either
+way, ops only ever receive plain integers.
 
-The companion list B is a private random set of numbers attached to the
-line of text it is written in: frozen, the same length as the main list,
-born from the list seed at a fixed offset (so it is exactly recomputable
-whether or not the question uses it). There is NO way to reference another
-instruction's list — B always means "the list of the line this text is on";
-the executor supplies that list at resolution time.
+The private list B is a random set of numbers attached to the line of text
+it is written in: frozen, same length as the main list, born from the list
+seed at a fixed offset. There is NO way to reference another line's list —
+B always means "the list of the line this text is on"; the executor
+supplies that list at resolution time.
 
-Positions are 0-indexed; a position outside the list (or outside B) makes
-the operand unresolvable (the question generator must avoid emitting it).
+Positions are 0-indexed. A position outside 0..length-1 — in any applier,
+including an offset that runs off the end — makes the operand unresolvable
+(no wrapping; the question generator must never emit it).
 """
 
 import sympy as sp
 
 L = sp.IndexedBase("List", integer=True)
-B = sp.IndexedBase("B", integer=True)
 START = sp.IndexedBase("Start", integer=True)
+B = sp.IndexedBase("B", integer=True)
+POS = sp.IndexedBase("Pos", integer=True)
 P = sp.Symbol("p", integer=True, nonnegative=True)
 
-
-def At(position: int) -> sp.Indexed:
-    """The value at a 0-indexed position of the current list."""
-    return L[position]
-
-
 _CHANGED = sp.IndexedBase("Changed", integer=True)
+
+APPLIER_NAMES = {L: "the list", START: "the starting list", B: "this line's list B"}
+
+
+def At(position) -> sp.Indexed:
+    """The value at a position of the current list — List[position]."""
+    return L[position]
 
 
 def Changed(j: int) -> sp.Indexed:
@@ -53,8 +61,7 @@ def Changed(j: int) -> sp.Indexed:
     An EFFECT reference: resolving it requires instruction j to have already
     executed, so it creates an exec dependency — the executor auto-holds the
     referencing instruction until j has run, past or future. With repeats,
-    "last executed" means the most recent execution. Like At/List[p], it is
-    native SymPy indexing, so it composes into every op (Max/Min included).
+    "last executed" means the most recent execution.
     """
     return _CHANGED[j]
 
@@ -75,12 +82,12 @@ def _is_start_ref(e) -> bool:
     return isinstance(e, sp.Indexed) and e.base == START
 
 
-def is_elementwise(operand) -> bool:
-    """Whether the operand resolves per element (uses the position symbol P).
+def _is_pos_ref(e) -> bool:
+    return isinstance(e, sp.Indexed) and e.base == POS
 
-    B refs alone don't make an operand per-element: B[3] is a fixed
-    position of the private list, resolved once like any scalar.
-    """
+
+def is_elementwise(operand) -> bool:
+    """Whether the operand resolves per element (its position uses p)."""
     return sp.sympify(operand).has(P)
 
 
@@ -102,43 +109,65 @@ def effect_refs(operand) -> set[int]:
     return refs
 
 
-def _indexed_lookup(values: list[int], name: str):
-    def lookup(ref: sp.Indexed) -> sp.Integer:
-        if len(ref.indices) != 1:
-            raise ValueError(f"{name} reference {ref} takes exactly one position")
-        idx = ref.indices[0]
-        if not idx.is_Integer:
-            raise ValueError(f"non-integer position {idx} in {name} reference")
-        i = int(idx)
-        if not 0 <= i < len(values):
-            raise ValueError(f"position {i} out of range 0..{len(values) - 1} in {name}")
-        return sp.Integer(values[i])
+def position_form(index) -> str:
+    """The POSITION form of an index expression: fixed | own | offset | indirect."""
+    index = sp.sympify(index)
+    if index.is_Integer:
+        return "fixed"
+    if index == P:
+        return "own"
+    if index.atoms(sp.Indexed):
+        return "indirect"
+    if index.has(P):
+        return "offset"
+    return "fixed"
 
-    return lookup
+
+def _lookup(ref: sp.Indexed, seq, effects, companion, original) -> sp.Integer:
+    """Resolve one reference whose position is already a concrete integer."""
+    if len(ref.indices) != 1:
+        raise ValueError(f"reference {ref} takes exactly one position")
+    i = int(ref.indices[0])
+    base = ref.base
+    if base == _CHANGED:
+        if effects is None or i not in effects:
+            raise ValueError(f"instruction {i} has not executed — {ref} unresolvable")
+        return sp.Integer(effects[i])
+    if base == L:
+        values, name = seq, "the list"
+    elif base == START:
+        if original is None:
+            raise ValueError(f"{ref} references the starting list but none was given")
+        values, name = original, "the starting list"
+    elif base == B:
+        if companion is None:
+            raise ValueError(f"{ref} references B but this instruction has no list")
+        values, name = companion, "this line's list B"
+    elif base == POS:
+        values, name = list(range(len(seq))), "the positions"
+    else:
+        raise ValueError(f"unknown applier in {ref}")
+    if not 0 <= i < len(values):
+        raise ValueError(f"position {i} out of range 0..{len(values) - 1} in {name}")
+    return sp.Integer(values[i])
 
 
 def _collapse(expr, seq, effects, companion, original) -> int:
-    """Fully resolve an expression with concrete indices to an integer.
-
-    companion is THIS instruction's private list (or None if it has none).
-    """
-
-    def lookup_effect(ref: sp.Indexed) -> sp.Integer:
-        j = int(ref.indices[0])
-        if effects is None or j not in effects:
-            raise ValueError(f"instruction {j} has not executed — {expr} unresolvable")
-        return sp.Integer(effects[j])
-
-    result = expr.replace(_is_list_ref, _indexed_lookup(seq, "List"))
-    if any(_is_start_ref(e) for e in result.atoms(sp.Indexed)):
-        if original is None:
-            raise ValueError(f"operand {expr} references Start but no original list given")
-        result = result.replace(_is_start_ref, _indexed_lookup(original, "Start"))
-    if any(_is_companion_ref(e) for e in result.atoms(sp.Indexed)):
-        if companion is None:
-            raise ValueError(f"operand {expr} references B but this instruction has no list")
-        result = result.replace(_is_companion_ref, _indexed_lookup(companion, "B"))
-    result = result.replace(_is_effect_ref, lookup_effect)
+    """Fully resolve an expression to an integer. References resolve
+    inside-out: any reference whose position is already concrete is
+    replaced, repeatedly, so List[List[0]] works. companion is THIS
+    instruction's private list (or None if it has none)."""
+    result = expr
+    for _ in range(16):  # nesting depth bound — far beyond any real operand
+        ready = [r for r in result.atoms(sp.Indexed) if r.indices and r.indices[0].is_Integer]
+        if not ready:
+            break
+        result = result.xreplace(
+            {r: _lookup(r, seq, effects, companion, original) for r in ready}
+        )
+    left = result.atoms(sp.Indexed)
+    if left:
+        raise ValueError(f"unresolvable position in {sorted(map(str, left))} of {expr}")
     if result.is_Integer is not True:
         raise ValueError(f"operand {expr} did not resolve to an integer")
     return int(result)
@@ -168,7 +197,7 @@ def resolve_elementwise(
     """Resolve an operand to one integer PER POSITION, in one snapshot.
 
     Scalar operands broadcast their single value; per-element operands
-    substitute each position into P and read frozen sources per element.
+    substitute each position into p and resolve from there.
     """
     expr = sp.sympify(operand)
     if not is_elementwise(expr):
@@ -193,28 +222,26 @@ def resolvable(
         return False
 
 
-def phrase(operand) -> str:
-    """English for an operand: 4 -> '4', At(4) -> 'the number at position 4',
-    P -> 'its own position', B[P] -> 'the matching number in its list B'.
+def _position_words(index) -> str:
+    if index == P:
+        return "its own position"
+    return f"position {index}"
 
-    Composite operands fall back to their formula form — structure to
-    string, one way, as always.
-    """
+
+def phrase(operand) -> str:
+    """English for an operand, one pattern for every applier:
+    'the number at position 3 of the list' / '... at its own position of
+    the starting list' / '... of this line's list B'; Pos[p] -> 'its own
+    position'. Composites fall back to their formula — structure to
+    string, one way, as always."""
     expr = sp.sympify(operand)
-    if _is_list_ref(expr):
-        return f"the number at position {expr.indices[0]}"
     if _is_effect_ref(expr):
         return f"the count of numbers instruction {expr.indices[0]} changed"
     if expr == P:
         return "its own position"
-    if _is_start_ref(expr):
+    if _is_pos_ref(expr):
         idx = expr.indices[0]
-        if idx == P:
-            return "its original number"
-        return f"the original number at position {idx}"
-    if _is_companion_ref(expr) and len(expr.indices) == 1:
-        idx = expr.indices[0]
-        if idx == P:
-            return "the matching number in this instruction's list B"
-        return f"the number at position {idx} in this instruction's list B"
+        return "its own position" if idx == P else f"the position number {idx}"
+    if isinstance(expr, sp.Indexed) and expr.base in APPLIER_NAMES:
+        return f"the number at {_position_words(expr.indices[0])} of {APPLIER_NAMES[expr.base]}"
     return str(expr)
