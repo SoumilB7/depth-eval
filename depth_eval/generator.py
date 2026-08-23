@@ -258,8 +258,10 @@ def _random_instruction(
     category = _weighted(rng, config.category_weights) if others else "direct"
 
     def hold():
-        if others and rng.random() < config.hold_chance:
-            return rng.choice(others)
+        # a hold always names a LATER line: "then apply it immediately after
+        # it" must be literally true (a hold on an earlier line is dead text)
+        if ahead and rng.random() < config.hold_chance:
+            return rng.choice(ahead)
         return None
 
     def consumed():

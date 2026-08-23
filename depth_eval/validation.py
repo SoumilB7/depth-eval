@@ -16,6 +16,9 @@ Static issues (structure alone):
   exist yet. A forward reference must carry its own hold.
 - dead_edit            : "from now on, instruction j ..." when j has already
   run by the editor's turn — an edit of the past changes nothing.
+- dead_hold            : a hold naming an EARLIER line. "Hold until k has
+  executed, then apply it immediately after it" must be literally true;
+  a hold always points forward.
 - blocked              : depends, possibly transitively, on a broken
   instruction, so it can never run either.
 - position_out_of_range: a fixed position outside the list (List/Start/
@@ -230,7 +233,13 @@ def _static_issues(
                 broken.add(i)
             else:
                 if j == hold:
-                    deps[i].add(j)
+                    if j < i:
+                        issues.append(Issue("dead_hold", i,
+                                            f"instruction {i} holds until instruction {j}, "
+                                            "which is listed earlier — a hold names a later line"))
+                        broken.add(i)
+                    else:
+                        deps[i].add(j)
                 if j in refs:
                     needs.setdefault(i, set()).add(j)
 

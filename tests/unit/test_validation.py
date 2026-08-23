@@ -14,9 +14,11 @@ def kinds(chain, start=(1, 2, 3), rows=ROWS):
 def test_structural_kinds():
     assert kinds([Instruction(O["n + x"], 1, hold_until_after=8)]) == ["trigger_out_of_range"]
     assert kinds([Instruction(O["n + x"], 1, hold_until_after=1)]) == ["self_reference"]
-    assert set(kinds([Instruction(O["n + x"], 5, hold_until_after=2),
-                      Instruction(O["n*x"], 2, hold_until_after=1),
-                      Instruction(O["n + x"], 1, hold_until_after=2)])) == {"cycle", "blocked"}
+    # holds only point forward, so they can never cycle; a backward hold is dead,
+    # and whatever waits on a broken line is blocked
+    assert set(kinds([Instruction(O["n + x"], 5),
+                      Instruction(O["n*x"], 2, hold_until_after=3),
+                      Instruction(O["n + x"], 1, hold_until_after=1)])) == {"dead_hold", "blocked"}
 
 
 def test_timeline_kinds():
