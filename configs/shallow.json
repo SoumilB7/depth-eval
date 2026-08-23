@@ -22,6 +22,29 @@
     "alter": 0,
     "erase": 0
   },
+  "scope_weights": {
+    "all": 100,
+    "stride": 0,
+    "span": 0,
+    "value": 0,
+    "touched": 0,
+    "same": 0
+  },
+  "times_weights": {
+    "1": 100,
+    "2": 0,
+    "3": 0
+  },
+  "gate_weights": {
+    "always": 100,
+    "value": 0,
+    "effect": 0
+  },
+  "order_weights": {
+    "snapshot": 100,
+    "forward": 0,
+    "backward": 0
+  },
   "hold_chance": 0.1,
   "include_powers": false,
   "min_distinct_fraction": 0.3,
