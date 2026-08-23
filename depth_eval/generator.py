@@ -203,9 +203,9 @@ def _random_gate(rng: random.Random, config: GeneratorConfig, length: int, other
 
 def _random_application(
     rng: random.Random, config: GeneratorConfig, length: int, others: list[int],
-    extent_allowed: bool = True,
+    extent_allowed: bool = True, order_allowed: bool = True,
 ) -> Application:
-    """HOW a data line lands: EXTENT (map lines only), TIMES, GATE.
+    """HOW a data line lands: EXTENT, TIMES, GATE, ORDER (map lines only).
     All-default weight tables consume no draws at all."""
     scope = _random_scope(rng, config, length, others) if extent_allowed else ALL
     times = 1
@@ -213,7 +213,7 @@ def _random_application(
         times = int(_weighted(rng, config.times_weights))
     gate = _random_gate(rng, config, length, others)
     order = "snapshot"
-    if extent_allowed and {k for k, w in config.order_weights.items() if w > 0} != {"snapshot"}:
+    if order_allowed and {k for k, w in config.order_weights.items() if w > 0} != {"snapshot"}:
         order = _weighted(rng, config.order_weights)
     if scope is ALL and times == 1 and gate is ALWAYS and order == "snapshot":
         return WHOLE
@@ -246,7 +246,9 @@ def _random_instruction(
                 move = swap(a, rng.choice([j for j in range(length) if j != a]))
             else:
                 move = ascending()
-            how = _random_application(rng, config, length, others, extent_allowed=False)
+            how = _random_application(rng, config, length, others,
+                                      extent_allowed=move.name != "swap",
+                                      order_allowed=False)
             return MoveInstruction(move, hold_until_after=hold(), application=how)
         op = NUMBER_OPS[rng.choice(pool)]
         operand = _direct_operand(rng, config, length, kind)

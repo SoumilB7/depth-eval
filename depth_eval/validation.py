@@ -220,11 +220,17 @@ def _static_issues(
             if how.times < 1:
                 issues.append(Issue("locked_application", i, f"instruction {i}: times must be >= 1"))
                 broken.add(i)
+            if isinstance(ins, MoveInstruction) and how.order != "snapshot":
+                issues.append(Issue("locked_application", i,
+                                    f"instruction {i}: an ordered move has no meaning — "
+                                    "a permutation is simultaneous"))
+                broken.add(i)
             if isinstance(ins, MoveInstruction) and (
-                how.extent.kind != "all" or how.order != "snapshot"
+                ins.move.name == "swap" and how.extent.kind != "all"
             ):
                 issues.append(Issue("locked_application", i,
-                                    f"instruction {i}: a scoped or ordered move is not enabled yet"))
+                                    f"instruction {i}: a scoped swap is not allowed — "
+                                    "swap already names absolute positions"))
                 broken.add(i)
         exprs = (getattr(ins, "operand", None),) + ((how.extent.where, how.gate.where) if how else ())
         for expr in exprs:

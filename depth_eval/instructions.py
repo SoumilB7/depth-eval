@@ -4,8 +4,10 @@ A chain mixes three kinds of lines:
 - Instruction     — a MAP line: (op, operand, optional hold, application) —
   every touched value becomes op(value, x).
 - MoveInstruction — a PERMUTE line: (move, optional hold, application) —
-  values MOVE instead of changing (ops/moves.py). No op, no operand; its
-  extent is locked to the whole list for now.
+  values MOVE instead of changing (ops/moves.py). No op, no operand. A
+  SCOPED move permutes the values among the selected positions only (the
+  subsequence, in index order); unselected positions never move. Scoped
+  swap and ordered moves are locked — no coherent meaning.
 - MetaInstruction — a verb aimed at another instruction (mirror, negate,
   amplify, flip, rewrite, cancel, unwind). See meta/verbs.py.
 
@@ -126,9 +128,14 @@ class MoveInstruction:
     application: Application = WHOLE
 
     def render(self, number: int, companion: list[int] | None = None) -> str:
-        body = f"{self.move.phrase} ({self.move.formula})"
-        body = _with_list(body, (self.application.gate.where,), companion)
-        return _decorate(body, self.application, number, self.hold_until_after)
+        how = self.application
+        if how.extent is ALL:
+            body = f"{self.move.phrase} ({self.move.formula})"
+        else:
+            body = (f"{self.move.phrase}, but only {how.extent.phrase}, keeping "
+                    f"everything else in place ({self.move.formula} where {how.extent.where})")
+        body = _with_list(body, (how.extent.where, how.gate.where), companion)
+        return _decorate(body, how, number, self.hold_until_after)
 
 
 @dataclass(frozen=True)
@@ -300,18 +307,30 @@ def execute(
         before = seq
         total = list(range(len(seq)))  # composed permutation across passes
         for _ in range(d.how.times):
-            sigma = d.move.sigma(seq)
+            if d.how.extent is ALL:
+                sigma = d.move.sigma(seq)
+            else:
+                # scoped move: permute the values among the selected
+                # positions only (the subsequence, in index order)
+                selected = resolve_mask(current_scope(d.how.extent.where),
+                                        seq, effects, companion, original)
+                chosen = [i for i, m in enumerate(selected) if m]
+                sub_sigma = d.move.sigma([seq[i] for i in chosen])
+                sigma = list(range(len(seq)))
+                for j, i in enumerate(chosen):
+                    sigma[i] = chosen[sub_sigma[j]]
             seq = [seq[sigma[i]] for i in range(len(seq))]
             total = [total[sigma[i]] for i in range(len(seq))]
         if all(total[i] == i for i in range(len(seq))):
             raise dead("the move moves nothing")
+        where = "" if d.how.extent is ALL else f" where {d.how.extent.where}"
         times = "" if d.how.times == 1 else f" x{d.how.times}"
         mask = [total[i] != i for i in range(len(seq))]
         changed = sum(1 for old, now in zip(before, seq) if old != now)
         effects[number] = Effect(changed, tuple(mask))
         executed[number] = total
-        trace.append(Step(number, None, None, d.move.formula + times, d.move.phrase,
-                          changed, list(seq)))
+        trace.append(Step(number, None, None, d.move.formula + where + times,
+                          d.move.phrase, changed, list(seq)))
 
     def run_noop(number: int, why: str) -> None:
         effects[number] = nothing
