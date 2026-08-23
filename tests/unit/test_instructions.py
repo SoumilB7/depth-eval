@@ -45,7 +45,7 @@ def test_cancel_is_a_no_op_event():
 def test_unwind_replays_recorded_x():
     chain = [Instruction(O["n*x"], 3), Instruction(O["n + x"], 3), MI(V["unwind"], 1)]
     final, t = execute(chain, [4, 5])
-    assert final == [5, 6] and t[2].xs == [3, 3]
+    assert final == [5, 6] and t[2].xs is None  # replayed values live in the record, not the step
     assert execute([MI(V["cancel"], 2), Instruction(O["n + x"], 5), MI(V["unwind"], 2)], [9])[0] == [9]
 
 
