@@ -3,7 +3,7 @@ from .configs import list_configs, load_config
 from .dag import Edge, build_edges, schedule
 from .generator import GeneratorConfig, Question, generate
 from .instructions import EditStep, ExecutionError, Step, execute
-from .lines import DataLine, Instruction, MoveInstruction, render_question
+from .lines import DataLine, Instruction, MoveInstruction, render_prompt, render_question
 from .ops.moves import Move, ascending, reverse, rotate, swap
 from .meta import META_VERBS, MetaInstruction, MetaVerb
 from .nomenclature import Label, classify, mix, split, type_of
@@ -63,6 +63,7 @@ __all__ = [
     "Step",
     "EditStep",
     "execute",
+    "render_prompt",
     "render_question",
     "Edge",
     "build_edges",

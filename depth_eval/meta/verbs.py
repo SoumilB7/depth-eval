@@ -39,30 +39,42 @@ META_VERBS: dict[str, MetaVerb] = {
     for v in [
         MetaVerb(
             "mirror", "read",
-            "Apply instruction {j}'s operation once more, as it is currently defined",
+            "Apply instruction {j}'s operation (as it is currently defined) to the "
+            "list now, as one more run of it",
             transform=lambda d, line, n: d,
         ),
         MetaVerb(
-            "negate", "read", "Do the opposite of instruction {j}'s operation",
+            "negate", "read",
+            "Apply the inverse of instruction {j}'s operation (as it is currently "
+            "defined) to the list now",
             transform=lambda d, line, n: _inverted(d, "negate"),
         ),
         MetaVerb(
-            "amplify", "edit", "Instruction {j} must use double its operand",
+            "amplify", "edit",
+            "From now on, instruction {j} uses double its operand",
             transform=lambda d, line, n: _map_only(d, "amplify").amplified(),
         ),
         MetaVerb(
-            "flip", "edit", "Instruction {j} must do the inverse of its operation",
+            "flip", "edit",
+            "From now on, instruction {j} does the inverse of its operation",
             transform=lambda d, line, n: _inverted(d, "flip"),
         ),
         MetaVerb(
-            "rewrite", "edit", "Instruction {j} must use {x} as its operand",
+            "rewrite", "edit",
+            "From now on, instruction {j} uses {x} as its operand",
             takes_operand=True,
             transform=lambda d, line, n: _map_only(d, "rewrite").rewritten(line.operand, n),
         ),
         MetaVerb(
-            "cancel", "edit", "Instruction {j} must do nothing",
+            "cancel", "edit",
+            "From now on, instruction {j} is cancelled: it does nothing when it runs",
             transform=lambda d, line, n: None,
         ),
-        MetaVerb("unwind", "undo", "Undo what instruction {j} did"),
+        MetaVerb(
+            "unwind", "undo",
+            "Undo what instruction {j} actually did: apply the inverse of its "
+            "operation, with the same values it used, at the same positions, to "
+            "the list as it is now",
+        ),
     ]
 }

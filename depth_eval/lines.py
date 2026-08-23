@@ -68,7 +68,7 @@ class Instruction(DataLine):
         if how.extent is ALL:
             words = f"Replace every number with {self.op.wording(self.operand)}"
         else:
-            words = (f"For {how.extent.phrase}, replace it with "
+            words = (f"For {how.extent.phrase}, replace each of them with "
                      f"{self.op.wording(self.operand)}")
         words = _with_list(words, (self.operand, how.extent.where, how.gate.where), companion)
         return _decorate(words, self.op.formula(self.operand), how, number,
@@ -99,3 +99,43 @@ def render_question(instructions: list, companions: list[list[int]] | None = Non
         companion = companions[i - 1] if companions is not None else None
         lines.append(ins.render(i, companion))
     return "\n".join(lines)
+
+
+CONVENTIONS = """\
+You are given a list of integers and a numbered list of instructions. Work through them by careful reasoning only and report the final list. These rules are exact.
+
+POSITIONS AND VALUES
+- Positions count from 0. "The number at position i of the list" is the value at position i at the moment the instruction runs. "The starting list" is the list before any instruction ran. "This instruction's list B" is the private list printed on that line. "Its own position" is the position of the number being replaced.
+- An instruction reads the list as it is right before it runs (one snapshot) and replaces all its selected numbers at once — except a line marked "one number at a time", which updates positions in the stated direction and re-reads the list for each number, so each number sees the numbers already updated before it.
+
+ORDER OF EXECUTION
+- Walk through the instructions in numbered order. An instruction runs at its turn unless it is waiting for something. Waiting begins only at an instruction's own turn: if everything it needs has already run by then, it simply runs at its turn.
+- An instruction waits when: (a) it says "hold until instruction k has executed"; (b) it uses what another instruction did — "the count of numbers instruction j changed", "positions instruction j applied to", "undo what instruction j did" — that instruction must have run first, even if it is listed later; (c) another instruction changes its meaning ("from now on, instruction j ...") — it waits until that instruction has run, even if that one is listed later.
+- The moment the last thing a waiting instruction needs has run, the waiting instruction runs immediately, before the walk continues. If several are released at once they run in listing order, and anything they in turn release runs right after them in the same way.
+- Every instruction runs exactly once. A cancelled instruction, a failed condition, or an undo of an instruction that did nothing still counts as a run — one that changed 0 numbers. An instruction that only changes another instruction's meaning ("from now on ...") also changes 0 numbers.
+
+WHAT AN INSTRUCTION MEANS
+- "From now on, instruction j ..." changes what instruction j does when its turn comes; it never changes what j already did. Several such changes stack, in the order they run. A cancelled instruction stays cancelled.
+- "As it is currently defined" includes every such change that has run so far. The inverse of an operation: plus ↔ minus, times ↔ divided exactly, reverse ↔ reverse, rotate right by k ↔ rotate left by k, swap ↔ the same swap. References are re-read at the moment the line runs.
+- "Undo what instruction j actually did" applies the inverse operation with the exact values j used, at the positions j applied to (for a move: puts the values back the way j moved them), to the list as it is now — it does not restore the list to before j.
+- "If <condition>:" is checked once, on the list right before the instruction runs. If it fails, the instruction does nothing.
+- "k times over" runs the whole instruction k times in a row; every reference (positions, counts, selections) is re-read before each run. The "If" condition is not among them — it is checked once, before the first run only.
+- "For <selection>, ..." applies the replacement only at the selected positions, judged on the list right before the instruction runs. "The count of numbers instruction j changed" is how many positions hold a different value after instruction j than before it (the whole instruction, all its times over). "Positions instruction j applied to" are the positions j's selection covered when it ran (for a move: the positions whose value moved). "The same selection as instruction j" applies j's current selection rule to the list now.
+- A move (reverse, rotate, swap, sort) moves values between positions without changing them; "rotate the list right by k" moves every value k positions to the right, wrapping around to the front.
+
+ARITHMETIC
+- Everything stays an integer; negative numbers are allowed. "Rounded down" means toward minus infinity (−7 divided by 2, rounded down, is −4). "The remainder when a is divided by b" takes the sign of b (the remainder when −7 is divided by 3 is 2). Greatest common divisor and least common multiple are never negative; gcd(a, 0) = |a| and lcm(a, 0) = 0. "Divided exactly" always divides without remainder.
+
+NOTATION
+- The formula in square brackets at the end of each line says the same thing exactly: n is the number being replaced and p its position; List[i], Start[i], B[i] are the value at position i of the current list, the starting list, and the line's private list; Pos[p] is the position itself; Changed[j] is the count of numbers instruction j changed; Touched[j, p] is 1 where instruction j applied to position p; ScopeOf[j] is instruction j's current selection rule. "where" gives the selection, "if" the condition, "xK" the times over, "forward"/"backward" the one-at-a-time direction; floor rounds down, Mod is the remainder.
+
+ANSWER
+- Give the final list as the last line of your answer, in the form [a, b, c, ...].
+"""
+
+
+def render_prompt(start: list[int], instructions: list,
+                  companions: list[list[int]] | None = None) -> str:
+    """The complete text a model is given: conventions, start, numbered lines."""
+    return (f"{CONVENTIONS}\nStarting list: {list(start)}\n\nInstructions:\n"
+            f"{render_question(instructions, companions)}\n")

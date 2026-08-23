@@ -56,8 +56,11 @@ def stride(step: int, phase: int = 0, length: int | None = None, from_end: bool 
             tail += f", starting {phase} from the last"
     else:
         position, tail = P, f"from position {phase}"
-    return Scope("stride", sp.Eq(sp.Mod(position - phase, step), 0),
-                 f"every {_ordinal(step)} number {tail}")
+    where = sp.Eq(sp.Mod(position - phase, step), 0)
+    if length is not None:  # spell the positions out — no counting ambiguity
+        chosen = [i for i in range(length) if where.subs(P, i)]
+        tail += f" (positions {', '.join(map(str, chosen))})"
+    return Scope("stride", where, f"every {_ordinal(step)} number {tail}")
 
 
 def span(a: int, b: int) -> Scope:
@@ -78,15 +81,18 @@ def above(x) -> Scope:
 
 
 def touched(j: int) -> Scope:
-    return Scope("touched", sp.Eq(TOUCHED[j, P], 1), f"every number instruction {j} applied to")
+    return Scope("touched", sp.Eq(TOUCHED[j, P], 1),
+                 f"every number at a position instruction {j} applied to")
 
 
 def untouched(j: int) -> Scope:
-    return Scope("touched", sp.Eq(TOUCHED[j, P], 0), f"every number instruction {j} did not apply to")
+    return Scope("touched", sp.Eq(TOUCHED[j, P], 0),
+                 f"every number at a position instruction {j} did not apply to")
 
 
 def same_as(j: int) -> Scope:
-    return Scope("same", SCOPE_OF[j], f"the same numbers as instruction {j}")
+    return Scope("same", SCOPE_OF[j],
+                 f"the same selection as instruction {j} (its current rule, judged on the list now)")
 
 
 # --- gates: whole-list conditions (no p) — the GATE axis of an Application ---
