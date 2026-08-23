@@ -38,8 +38,9 @@ class Edge:
 def own_triggers(instruction) -> set[int]:
     """Exec dependencies an instruction declares for ITSELF."""
     refs: set[int] = set()
-    scope = getattr(instruction, "scope", None)
-    for expr in (getattr(instruction, "operand", None), scope.where if scope else None):
+    how = getattr(instruction, "application", None)
+    exprs = (getattr(instruction, "operand", None),) + ((how.extent.where, how.gate.where) if how else ())
+    for expr in exprs:
         if expr is not None:
             refs |= effect_refs(expr)
     if instruction.hold_until_after is not None:
@@ -68,9 +69,9 @@ def build_edges(instructions) -> list[Edge]:
     for n, ins in enumerate(instructions, start=1):
         if isinstance(ins, MetaInstruction) and ins.verb.klass in ("read", "edit"):
             edges.append(Edge("def", ins.target, n))
-        scope = getattr(ins, "scope", None)
-        if scope is not None:
-            edges += [Edge("def", j, n) for j in sorted(scope_refs(scope.where))]
+        how = getattr(ins, "application", None)
+        if how is not None:
+            edges += [Edge("def", j, n) for j in sorted(scope_refs(how.extent.where))]
     return edges
 
 

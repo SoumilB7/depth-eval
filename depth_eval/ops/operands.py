@@ -212,17 +212,22 @@ def _collapse(expr, seq, effects, companion, original) -> int:
     return int(result)
 
 
+def resolve_condition(where, seq, effects=None, companion=None, original=None) -> bool:
+    """Resolve a whole-list boolean (no p) to yes/no."""
+    result = _substitute(sp.sympify(where), seq, effects, companion, original)
+    if result not in (sp.true, sp.false):
+        raise ValueError(f"condition {where} did not resolve to yes/no")
+    return result == sp.true
+
+
 def resolve_mask(where, seq, effects=None, companion=None, original=None) -> list[bool]:
     """Resolve a scope's boolean per position, in one snapshot."""
     if where == sp.true:
         return [True] * len(seq)
-    mask = []
-    for i in range(len(seq)):
-        result = _substitute(sp.sympify(where).subs(P, i), seq, effects, companion, original)
-        if result not in (sp.true, sp.false):
-            raise ValueError(f"scope {where} did not resolve to yes/no at position {i}")
-        mask.append(result == sp.true)
-    return mask
+    return [
+        resolve_condition(sp.sympify(where).subs(P, i), seq, effects, companion, original)
+        for i in range(len(seq))
+    ]
 
 
 def resolve(

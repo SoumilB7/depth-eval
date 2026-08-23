@@ -30,10 +30,11 @@ applier, the direct TYPE is the position form:
         alter        amplify j, flip j, rewrite j
         erase        cancel j
 
-A SCOPE (which positions a line touches — ops/scope.py) is a level on any
-data line, written in brackets: `direct.live[stride]`. A scope that reads
-another line (touched j, same as j) makes the whole line relative, exactly
-as a Changed[j] operand would. `all` is never written.
+A data line's APPLICATION (application.py — how it lands on the list) is a
+bracketed level: the non-default axes, `direct.live[stride, x3, if]`. An
+extent or gate that reads another line (touched j, same as j, Changed[j]
+in a gate) makes the whole line relative, exactly as a Changed[j] operand
+would. Defaults (whole, map, snapshot, once, always) are never written.
 
 A hold is a TAG ("held"), not a category: it changes when a line runs,
 never what it consumes or affects.
@@ -104,7 +105,7 @@ class Label:
     group: str | None      # relative only: "consumes" | "affects"
     kind: str              # leaf name (literal, live, ..., effect, alter, ...)
     tags: tuple[str, ...]  # ("held",) when hold_until_after is set
-    scope: str = "all"     # the line's scope kind (data lines only)
+    how: tuple[str, ...] = ()  # the application's non-default axes (data lines)
 
     def __str__(self) -> str:
         path = (
@@ -112,8 +113,8 @@ class Label:
             if self.group is None
             else f"{self.category}.{self.group}.{self.kind}"
         )
-        if self.scope != "all":
-            path += f"[{self.scope}]"
+        if self.how:
+            path += f"[{', '.join(self.how)}]"
         return path + "".join(f"+{t}" for t in self.tags)
 
 
@@ -148,12 +149,12 @@ def classify(instruction) -> Label:
     tags = ("held",) if instruction.hold_until_after is not None else ()
     if isinstance(instruction, Instruction):
         category, group, kind = _data_kind(instruction.operand)
-        scope = instruction.scope
-        if scope.kind == "same":
+        how = instruction.application
+        if how.extent.kind == "same":
             category, group, kind = "relative", "consumes", "definition"
-        elif scope.kind == "touched" or effect_refs(scope.where):
+        elif how.extent.kind == "touched" or effect_refs(how.extent.where) or effect_refs(how.gate.where):
             category, group, kind = "relative", "consumes", "effect"
-        return Label(category, group, kind, tags, scope.kind)
+        return Label(category, group, kind, tags, how.marks)
     if isinstance(instruction, MetaInstruction):
         kind = VERB_KIND[instruction.verb.name]
         return Label("relative", RELATIVE_KINDS[kind][0], kind, tags)

@@ -31,13 +31,17 @@ Dynamic issues (need the actual list, found by trial run):
 - undefined_operation  : an op hits an undefined point (division by zero,
   inexact unwind, ...) or an operand fails to resolve at execution time.
 - empty_scope          : a line's scope selects no number at execution
-  time — a dead line; never shipped.
+  time — a dead line; never shipped. (A closed GATE is different: the
+  line legitimately does nothing — a trap the model must compute.)
+- locked_application   : an application axis that is declared but not yet
+  enabled (FORM=permute, ORDER=forward|backward), or times < 1.
 """
 
 from dataclasses import dataclass
 
 import sympy as sp
 
+from .application import ENABLED
 from .dag import own_triggers
 from .instructions import Instruction, execute
 from .meta.base import MetaInstruction
@@ -189,14 +193,24 @@ def _static_issues(
         companion_length = None
         if companions is not None and i - 1 < len(companions):
             companion_length = len(companions[i - 1])
-        scope = getattr(ins, "scope", None)
-        for expr in (getattr(ins, "operand", None), scope.where if scope else None):
+        how = getattr(ins, "application", None)
+        if how is not None:
+            for axis, allowed in ENABLED.items():
+                if getattr(how, axis) not in allowed:
+                    issues.append(Issue("locked_application", i,
+                                        f"instruction {i}: {axis}={getattr(how, axis)!r} is not enabled yet"))
+                    broken.add(i)
+            if how.times < 1:
+                issues.append(Issue("locked_application", i, f"instruction {i}: times must be >= 1"))
+                broken.add(i)
+        exprs = (getattr(ins, "operand", None),) + ((how.extent.where, how.gate.where) if how else ())
+        for expr in exprs:
             if expr is not None:
                 found = _operand_issues(i, expr, length, companion_length)
                 issues.extend(found)
                 if found:
                     broken.add(i)
-        for j in (scope_refs(scope.where) if scope else ()):
+        for j in (scope_refs(how.extent.where) if how else ()):
             if j == i:
                 issues.append(Issue("self_reference", i, f"instruction {i} scopes on itself"))
             elif not 1 <= j <= k:

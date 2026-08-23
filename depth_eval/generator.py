@@ -15,7 +15,8 @@ Two seeds, two responsibilities, never mixed:
                         2. KIND      within the category (weighted)
                         3. variant   e.g. fixed vs own position (uniform)
                         4. numbers   op, positions, literals, targets
-                        5. SCOPE     which positions a data line touches
+                        5. APPLICATION  how a data line lands (only its
+                                        EXTENT — the scope — is drawn today)
                         6. hold      one gate, then a target
                       The forced nomenclature IS the first probability
                       distribution of instruction creation; the kind tables
@@ -31,6 +32,7 @@ rejections just consume more draws, so the outcome stays deterministic.
 import random
 from dataclasses import dataclass, field
 
+from .application import WHOLE, Application
 from .instructions import Instruction, Step, execute, render_question
 from .meta import META_VERBS, MetaInstruction
 from .nomenclature import CATEGORIES, DIRECT_KINDS, RELATIVE_KINDS, check_weights
@@ -162,6 +164,13 @@ def _random_scope(rng: random.Random, config: GeneratorConfig, length: int, othe
     return ALL
 
 
+def _random_application(rng: random.Random, config: GeneratorConfig, length: int, others: list[int]) -> Application:
+    """HOW a data line lands. Only the EXTENT axis is drawn today (scope
+    weights); TIMES and GATE have no knobs yet, FORM/ORDER are locked."""
+    scope = _random_scope(rng, config, length, others)
+    return WHOLE if scope is ALL else Application(extent=scope)
+
+
 def _random_instruction(
     rng: random.Random, config: GeneratorConfig, steps: int, length: int,
     pool: list[str], number: int
@@ -178,15 +187,15 @@ def _random_instruction(
     if category == "direct":
         op = NUMBER_OPS[rng.choice(pool)]
         operand = _direct_operand(rng, config, length)
-        scope = _random_scope(rng, config, length, others)
-        return Instruction(op, operand, hold_until_after=hold(), scope=scope)
+        how = _random_application(rng, config, length, others)
+        return Instruction(op, operand, hold_until_after=hold(), application=how)
 
     kind = _weighted(rng, config.relative_weights)
     if kind == "effect":
         op = NUMBER_OPS[rng.choice(pool)]
         operand = Changed(rng.choice(others))
-        scope = _random_scope(rng, config, length, others)
-        return Instruction(op, operand, hold_until_after=hold(), scope=scope)
+        how = _random_application(rng, config, length, others)
+        return Instruction(op, operand, hold_until_after=hold(), application=how)
     verb = META_VERBS[rng.choice(RELATIVE_KINDS[kind][1])]
     target = rng.choice(others)
     operand = _direct_operand(rng, config, length) if verb.takes_operand else None

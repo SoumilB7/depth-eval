@@ -1,3 +1,4 @@
+from .application import ALWAYS, WHOLE, Application
 from .configs import list_configs, load_config
 from .dag import Edge, build_edges, schedule
 from .generator import GeneratorConfig, Question, generate
@@ -25,6 +26,9 @@ __all__ = [
     "POS",
     "START",
     "Changed",
+    "Application",
+    "WHOLE",
+    "ALWAYS",
     "Scope",
     "ALL",
     "stride",
