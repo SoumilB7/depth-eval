@@ -42,8 +42,9 @@ Dynamic issues (need the actual list, found by trial run):
 - empty_scope          : a line's scope selects no number at execution
   time — a dead line; never shipped. (A closed GATE is different: the
   line legitimately does nothing — a trap the model must compute.)
-- locked_application   : an application axis that is declared but not yet
-  enabled (FORM=permute, ORDER=forward|backward), or times < 1.
+- locked_application   : an application combination that is locked with a
+  reason (application.py locked_reason): an ordered move, a scoped swap,
+  a form flag other than "map", or times < 1.
 """
 
 from dataclasses import dataclass

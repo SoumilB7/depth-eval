@@ -2,14 +2,16 @@
 
 Two types live here (classes differentiate kinds, members are instances):
 
-- MetaVerb: one KIND of manipulation. Its `klass` declares the DAG edges it
-  creates — the standing rule made into a type field:
-    "read" -> def  j→i : i reads j's current definition; timeline untouched
-    "edit" -> exec i⇒j : the TARGET parks until its editor has run (its
-              definition isn't final before that) + def j→i (editor reads
-              the listed text). Edits mutate definitions, NEVER the listing,
-              and never retroactively — reordering makes that impossible.
-    "undo" -> exec j⇒i : i needs j's actual execution record (the trace).
+- MetaVerb: one KIND of manipulation. Its `klass` declares what it needs
+  from its target — the standing rule made into a type field. Nothing
+  here moves a line in time (only holds do, dag.py):
+    "read" -> def  j→i : i reads j's current definition; j need not have run
+    "edit" -> def  j→i : i reads the listed text and changes j's definition;
+              j must still be AHEAD in the schedule (dead_edit otherwise).
+              Edits mutate definitions, NEVER the listing, never the past.
+    "undo" -> result   : i needs j's actual execution record, so j must have
+              run by i's turn — listed earlier, or i holds until j
+              (unexecuted_reference otherwise).
   Its `transform` IS its meaning (meta/verbs.py): given the target's
   current definition, the meta line and its number, it returns the
   definition to run (read verbs) or the target's new definition (edit
