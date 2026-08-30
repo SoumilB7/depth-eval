@@ -51,10 +51,11 @@ Dynamic issues (need the actual list, found by trial run):
   values than the floor, max(2, ⌊min_distinct_fraction × length⌋) — a
   flat list makes every later line trivial; blamed on the line that
   flattened it (the first one). (decision 13)
-- too_many_noops       : more no-op events (closed gate, cancelled line,
-  undo of nothing, read of a cancelled line) than ⌈max_noop_fraction ×
-  steps⌉ — cheap lines are rationed; blamed on the last no-op line.
-  (decision 13)
+- too_many_noops       : more lines leaving the list unchanged (a closed
+  gate, a cancelled line, an undo of nothing, a read of a cancelled line,
+  or a line that ran and changed nothing) than ⌈max_noop_fraction ×
+  steps⌉ — cheap lines are rationed; blamed on the last such line.
+  (decision 13; widened to "changed nothing" on 2026-09-03)
 - locked_application   : an application combination that is locked with a
   reason (application.py locked_reason): an ordered move, a scoped swap,
   a form flag other than "map", or times < 1.
@@ -455,12 +456,14 @@ def validate(
                 f"after instruction {step.instruction} the list holds {distinct} distinct "
                 f"values; every state must keep at least {floor}"))
             break  # the first flattening line is the one to blame
-    noops = [step for step in steps if step.operation == NOOP]
+    # a no-op is any line that left the list unchanged: the explicit no-op
+    # events AND a line that ran but changed nothing (ruling 2026-09-03)
+    noops = [step for step in steps if step.changed == 0]
     allowed = floors.noops(len(instructions))
     if len(noops) > allowed:
         last = noops[-1].instruction
         issues.append(Issue(
             "too_many_noops", last,
-            f"{len(noops)} lines do nothing, at most {allowed} may — "
+            f"{len(noops)} lines leave the list unchanged, at most {allowed} may — "
             f"instruction {last} is the last of them"))
     return issues
