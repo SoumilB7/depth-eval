@@ -66,6 +66,11 @@ class Dead(ValueError):
     kind = "empty_scope"
 
 
+# the operation a no-op event records: a closed gate, a cancelled line, an
+# undo of nothing, a read of a cancelled line (the validator rations these)
+NOOP = "(no-op)"
+
+
 @dataclass(frozen=True)
 class Step:
     """One application event in the trace (including no-ops)."""
@@ -250,7 +255,7 @@ def execute(
     def run_noop(number: int, why: str) -> None:
         effects[number] = nothing
         executed[number] = None
-        trace.append(Step(number, None, None, "(no-op)", why, 0, list(seq)))
+        trace.append(Step(number, None, None, NOOP, why, 0, list(seq)))
 
     def run_unwind(number: int, target: int) -> None:
         nonlocal seq

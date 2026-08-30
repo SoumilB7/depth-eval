@@ -2,7 +2,8 @@
 
 from depth_eval import META_VERBS as V
 from depth_eval import NUMBER_OPS as O
-from depth_eval import At, B, Changed, Instruction, MetaInstruction as MI, P, POS, validate
+from depth_eval import (Application, At, B, Changed, Instruction, MetaInstruction as MI, P, POS,
+                        START, even_at, span, validate)
 
 ROWS = [[1, 2, 3]] * 3
 
@@ -55,6 +56,19 @@ def test_meta_kinds():
 
 
 def test_dynamic_kind_by_trial_run():
-    assert kinds([Instruction(O["x"], 0), Instruction(O["Mod(n, x)"], At(1))]) == ["undefined_operation"]
+    assert kinds([Instruction(O["n - x"], 1), Instruction(O["Mod(n, x)"], At(0))]) == ["undefined_operation"]
     assert kinds([Instruction(O["n*x"], 3), Instruction(O["n + x"], 1), MI(V["unwind"], 1)],
                  start=(4, 5), rows=[[0, 0]] * 3) == ["undefined_operation"]
+
+
+def test_information_flow_kinds():
+    # a whole-list replace that never reads the live list wipes every earlier line
+    assert kinds([Instruction(O["x"], START[P])]) == ["reset"]
+    assert kinds([Instruction(O["x"], START[P], application=Application(extent=span(0, 1)))]) == []
+    assert kinds([MI(V["rewrite"], 2, operand=7), Instruction(O["x"], At(P))]) == ["reset"]
+    # the list after every line keeps the floor of distinct values (2 here)
+    assert kinds([Instruction(O["Min(n, x)"], 1)]) == ["collapse"]
+    # no-op events are rationed: ceil(0.15 * 3) = 1 allowed, two closed gates is one too many
+    closed = Application(gate=even_at(0))  # position 0 holds 1 — never opens
+    assert kinds([Instruction(O["n + x"], 1, application=closed)] * 2
+                 + [Instruction(O["n + x"], 1)]) == ["too_many_noops"]

@@ -21,7 +21,7 @@ intermediate state, so a wrong answer tells us exactly *where* it fell off.
   operand kinds, holds, meta verbs. Same seeds, same question, forever.
 - **Solve.** Instructions form a dependency DAG (holds, effect references,
   edits). Static schedule, then exact symbolic replay — no floats, ever.
-- **Validate.** Fifteen named error states (cycles, dead references, division
+- **Validate.** Eighteen named error states (cycles, dead references, division
   by zero...) — a broken chain cannot become a question.
 - **Trace.** Every event recorded: exact operation, resolved values, change
   counts, full state. Grading by divergence point comes free.

@@ -35,6 +35,11 @@ Static issues (structure alone):
 - malformed_operand    : non-integer positions or instruction references,
   multi-index references, a rewrite without an operand, or an operand on a
   verb that takes none.
+- reset                : a "replace with x" line over the WHOLE list whose x
+  never reads the live list (a literal, Start, B, Pos, Changed) — it wipes
+  every earlier line in one go. A partial replace (a scope) stays. A
+  rewrite that plants such an operand into a whole-list replace line is
+  the same breach, blamed on the editor. (decision 13)
 
 Dynamic issues (need the actual list, found by trial run):
 - undefined_operation  : an op hits an undefined point (division by zero,
@@ -42,21 +47,31 @@ Dynamic issues (need the actual list, found by trial run):
 - empty_scope          : a line's scope selects no number at execution
   time — a dead line; never shipped. (A closed GATE is different: the
   line legitimately does nothing — a trap the model must compute.)
+- collapse             : after some line the list holds fewer distinct
+  values than the floor, max(2, ⌊min_distinct_fraction × length⌋) — a
+  flat list makes every later line trivial; blamed on the line that
+  flattened it (the first one). (decision 13)
+- too_many_noops       : more no-op events (closed gate, cancelled line,
+  undo of nothing, read of a cancelled line) than ⌈max_noop_fraction ×
+  steps⌉ — cheap lines are rationed; blamed on the last no-op line.
+  (decision 13)
 - locked_application   : an application combination that is locked with a
   reason (application.py locked_reason): an ordered move, a scoped swap,
   a form flag other than "map", or times < 1.
 """
 
 from dataclasses import dataclass
+from math import ceil
 
 import sympy as sp
 
 from .application import locked_reason
 from .dag import consumes, schedule
-from .instructions import ExecutionError, execute
+from .instructions import NOOP, ExecutionError, Step, execute
 from .lines import DataLine, Instruction, MoveInstruction
 from .meta.base import MetaInstruction
-from .ops.operands import B, L, P, POS, START, effect_refs, scope_refs
+from .ops.operands import B, L, P, POS, START, effect_refs, scope_refs, uses_live
+from .ops.scope import ALL
 
 
 @dataclass(frozen=True)
@@ -64,6 +79,42 @@ class Issue:
     kind: str
     instruction: int  # 1-based listing number the blame lands on
     message: str
+
+
+@dataclass(frozen=True)
+class Floors:
+    """The acceptance floors a trial run is judged against. The numbers are
+    generator config (GeneratorConfig); the validator only applies them."""
+
+    min_distinct_fraction: float = 0.3  # distinct values EVERY state must keep
+    max_noop_fraction: float = 0.15     # share of lines that may be no-op events
+
+    def distinct(self, length: int) -> int:
+        return max(2, int(self.min_distinct_fraction * length))
+
+    def noops(self, steps: int) -> int:
+        return ceil(self.max_noop_fraction * steps)
+
+
+DEFAULT_FLOORS = Floors()
+
+
+def _is_whole_replace(ins) -> bool:
+    return isinstance(ins, Instruction) and ins.op.id == "x" and ins.application.extent is ALL
+
+
+def _reset_issue(i: int, target: int, operand) -> Issue | None:
+    """A whole-list "replace with x" whose x never reads the live list wipes
+    every earlier line. Blamed on i: the line itself (target == i) or the
+    editor that planted the operand into `target`."""
+    if uses_live(operand):
+        return None
+    if target == i:
+        what = f"instruction {i} replaces the whole list with something that never reads it"
+    else:
+        what = (f"instruction {i} plants an operand into instruction {target}, "
+                "a whole-list replace, that never reads the list")
+    return Issue("reset", i, f"{what} — every earlier line is wiped")
 
 
 def _operand_issues(i, operand, length, companion_length):
@@ -266,6 +317,11 @@ def _static_issues(
                                     f"instruction {i} plants a reference to instruction {j}, "
                                     f"but the chain is 1..{k}"))
                                 broken.add(i)
+                        if _is_whole_replace(instructions[ins.target - 1]):
+                            reset = _reset_issue(i, ins.target, ins.operand)
+                            if reset is not None:
+                                issues.append(reset)
+                                broken.add(i)
                 if ins.verb.klass in ("read", "edit"):
                     reads[i].add(ins.target)
 
@@ -291,6 +347,11 @@ def _static_issues(
                 issues.extend(found)
                 if found:
                     broken.add(i)
+        if _is_whole_replace(ins):
+            reset = _reset_issue(i, i, ins.operand)
+            if reset is not None:
+                issues.append(reset)
+                broken.add(i)
         for j in (scope_refs(how.extent.where) if how else ()):
             if j == i:
                 issues.append(Issue("self_reference", i, f"instruction {i} scopes on itself"))
@@ -367,17 +428,39 @@ def validate(
     instructions: list,
     start: list[int],
     companions: list[list[int]] | None = None,
+    floors: Floors = DEFAULT_FLOORS,
 ) -> list[Issue]:
     """All issues in a chain, static and dynamic. Empty list == valid.
 
     companions[k-1] is instruction k's private list B (or None for none).
+    floors: the acceptance floors the trial run is judged against.
     """
     issues = _static_issues(instructions, len(start), companions)
     if issues:
         return issues  # structure is broken; a trial run would be meaningless
 
     try:
-        execute(instructions, start, companions)
+        _, trace = execute(instructions, start, companions)
     except ExecutionError as e:
-        issues.append(Issue(e.kind or "undefined_operation", e.instruction, str(e)))
+        return [Issue(e.kind or "undefined_operation", e.instruction, str(e))]
+
+    # the trial run passed; now the floors, on every state it produced
+    steps = [event for event in trace if isinstance(event, Step)]
+    floor = floors.distinct(len(start))
+    for step in steps:
+        distinct = len(set(step.seq))
+        if distinct < floor:
+            issues.append(Issue(
+                "collapse", step.instruction,
+                f"after instruction {step.instruction} the list holds {distinct} distinct "
+                f"values; every state must keep at least {floor}"))
+            break  # the first flattening line is the one to blame
+    noops = [step for step in steps if step.operation == NOOP]
+    allowed = floors.noops(len(instructions))
+    if len(noops) > allowed:
+        last = noops[-1].instruction
+        issues.append(Issue(
+            "too_many_noops", last,
+            f"{len(noops)} lines do nothing, at most {allowed} may — "
+            f"instruction {last} is the last of them"))
     return issues

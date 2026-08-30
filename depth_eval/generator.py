@@ -14,10 +14,14 @@ Two seeds, two responsibilities, never mixed:
                         1. CATEGORY  direct | relative   (the nomenclature)
                         2. KIND      within the category (weighted)
                         3. variant   e.g. fixed vs own position (uniform)
-                        4. numbers   op, positions, literals, targets
-                        5. APPLICATION  how a data line lands (only its
-                                        EXTENT — the scope — is drawn today)
-                        6. hold      one gate, then a target
+                        4. numbers   positions, literals, targets
+                        5. APPLICATION  how a data line lands: extent,
+                                        times, gate, order (each table
+                                        skipped when all-default)
+                        6. op        uniform over the pool, drawn LAST so
+                                     the line is drawn inside the rules:
+                                     never a whole-list reset (decision 13)
+                        7. hold      one gate, then a target
                       The forced nomenclature IS the first probability
                       distribution of instruction creation; the kind tables
                       live in nomenclature.py and configs are validated
@@ -25,8 +29,10 @@ Two seeds, two responsibilities, never mixed:
 
 Same (list_seed, instruction_seed, steps, length, config) -> the same
 Question, always. Candidate chains that fail validation are repaired
-(blamed instructions re-drawn); the diversity floor re-rolls the chain —
-rejections just consume more draws, so the outcome stays deterministic.
+(blamed instructions re-drawn) — every acceptance floor (variety on every
+state, the no-op ration) is a validator kind with a blamed line, so a
+whole chain is re-rolled only when nothing is blamed. Rejections just
+consume more draws, so the outcome stays deterministic.
 """
 
 import random
@@ -41,8 +47,10 @@ from .nomenclature import CATEGORIES, DIRECT_KINDS, RELATIVE_KINDS, check_weight
 from .ops.scope import (ALL, GATE_KINDS, SCOPE_KINDS, above, bigger_at, changed_more,
                         even, even_at, odd, odd_at, same_as, span, stride, touched, untouched)
 from .ops import NUMBER_OPS, At, B, Changed, P, POS, START
+from .ops.base import NumberOp
+from .ops.operands import uses_live
 from .sequence import make_sequences
-from .validation import validate
+from .validation import Floors, validate
 
 
 @dataclass(frozen=True)
@@ -111,8 +119,12 @@ class GeneratorConfig:
     )
     hold_chance: float = 0.25
     include_powers: bool = False  # n**x / x**n explode under chaining
-    # the output list must keep at least this fraction of distinct values
+    # ACCEPTANCE floors, applied by the validator to the trial run (decision 13):
+    # the list after EVERY line keeps at least this fraction of distinct values
     min_distinct_fraction: float = 0.3
+    # at most this share of the lines may be no-op events (closed gate,
+    # cancelled line, undo of nothing), rounded up
+    max_noop_fraction: float = 0.15
     max_attempts: int = 200
 
     def __post_init__(self) -> None:
@@ -168,6 +180,17 @@ def _direct_operand(rng: random.Random, config: GeneratorConfig, length: int, ki
     if kind == "positional":
         return POS[P]
     return rng.randint(config.literal_low, config.literal_high)
+
+
+def _draw_op(rng: random.Random, pool: list[str], operand, how: Application) -> NumberOp:
+    """The op, uniform over the pool — minus "replace with x" when the line
+    would wipe the whole list (whole extent, operand never reading the live
+    list): a reset is never drawn (decision 13; the validator's `reset` kind
+    is the authority)."""
+    legal = pool
+    if how.extent is ALL and not uses_live(operand):
+        legal = [op_id for op_id in pool if op_id != "x"]
+    return NUMBER_OPS[rng.choice(legal)]
 
 
 def _random_scope(rng: random.Random, config: GeneratorConfig, length: int, others: list[int]):
@@ -288,16 +311,16 @@ def _random_instruction(
                                       extent_allowed=move.name != "swap",
                                       order_allowed=False)
             return MoveInstruction(move, hold_until_after=hold(), application=how)
-        op = NUMBER_OPS[rng.choice(pool)]
         operand = _direct_operand(rng, config, length, kind)
         how = _random_application(rng, config, length, behind)
+        op = _draw_op(rng, pool, operand, how)
         return Instruction(op, operand, hold_until_after=hold(), application=how)
 
     kind = _weighted(rng, config.relative_weights)
     if kind == "effect":
-        op = NUMBER_OPS[rng.choice(pool)]
         j, held = consumed()
         how = _random_application(rng, config, length, behind)
+        op = _draw_op(rng, pool, Changed(j), how)
         return Instruction(op, Changed(j), hold_until_after=held, application=how)
     verb = META_VERBS[rng.choice(RELATIVE_KINDS[kind][1])]
     if verb.klass == "undo":
@@ -345,17 +368,17 @@ def generate(
         for op_id in NUMBER_OPS
         if op_id != "n/x" and (config.include_powers or op_id not in ("n**x", "x**n"))
     ]
-    floor = max(2, int(config.min_distinct_fraction * length))
+    floors = Floors(config.min_distinct_fraction, config.max_noop_fraction)
 
     # Repair loop: whole-chain re-rolls die geometrically with depth, so on
     # validation failure only the BLAMED instructions are re-drawn (the
-    # validator names them). Full re-roll only when there is no blame (the
-    # diversity floor). Deterministic: repairs consume the instruction
-    # stream in a fixed order, so the same identity always converges to the
-    # same question.
+    # validator names them — the acceptance floors included). Full re-roll
+    # only if an issue ever carries no blame. Deterministic: repairs consume
+    # the instruction stream in a fixed order, so the same identity always
+    # converges to the same question.
     chain = _random_chain(rng, config, steps, length, pool)
     for attempt in range(1, config.max_attempts + 1):
-        issues = validate(chain, start, companions)
+        issues = validate(chain, start, companions, floors)
         if issues:
             blamed = sorted(
                 {i.instruction for i in issues if 1 <= i.instruction <= steps}
@@ -369,9 +392,6 @@ def generate(
                 chain = _random_chain(rng, config, steps, length, pool)
             continue
         final, trace = execute(chain, start, companions)
-        if len(set(final)) < floor:
-            chain = _random_chain(rng, config, steps, length, pool)
-            continue
         return Question(
             list_seed=list_seed,
             instruction_seed=instruction_seed,

@@ -7,7 +7,7 @@ from .lines import DataLine, Instruction, MoveInstruction, render_prompt, render
 from .ops.moves import Move, ascending, reverse, rotate, swap
 from .meta import META_VERBS, MetaInstruction, MetaVerb
 from .nomenclature import Label, classify, mix, split, type_of
-from .validation import Issue, validate
+from .validation import Floors, Issue, validate
 from .ops import (ALL, NUMBER_OPS, At, B, Changed, NumberOp, P, POS, START, Scope, above,
                   bigger_at, changed_more, even, even_at, odd, odd_at, resolvable, resolve,
                   same_as, span, stride, touched, untouched)
@@ -69,6 +69,7 @@ __all__ = [
     "build_edges",
     "schedule",
     "Issue",
+    "Floors",
     "validate",
     "Label",
     "classify",

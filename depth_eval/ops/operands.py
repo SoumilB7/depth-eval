@@ -119,6 +119,11 @@ def uses_companion(operand) -> bool:
     return any(_is_companion_ref(e) for e in sp.sympify(operand).atoms(sp.Indexed))
 
 
+def uses_live(operand) -> bool:
+    """Whether the operand reads the live list (List[…] anywhere, nested included)."""
+    return any(_is_list_ref(e) for e in sp.sympify(operand).atoms(sp.Indexed))
+
+
 def effect_refs(expr) -> set[int]:
     """Instruction numbers whose effect the expression references."""
     refs = set()
