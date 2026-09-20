@@ -51,6 +51,11 @@
     "swap": 25,
     "sort": 25
   },
+  "op_family_weights": {
+    "linear": 40,
+    "scaling": 10,
+    "shrinking": 50
+  },
   "hold_chance": 0.25,
   "include_powers": false,
   "min_distinct_fraction": 0.3,

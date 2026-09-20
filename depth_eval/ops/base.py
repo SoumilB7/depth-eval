@@ -48,6 +48,14 @@ class Lcm(sp.Function):
             return sp.Integer(math.lcm(int(a), int(b)))
 
 
+# How an op moves magnitude — the steer of decision 13 (never a cap):
+#   linear    shifts by x            n+x, n−x, x−n
+#   scaling   multiplies             n·x, lcm, n**x, x**n
+#   shrinking bounds or folds        mod, floor-divide, gcd, min, max, |n−x|,
+#                                    average, replace-with-x
+FAMILIES = ("linear", "scaling", "shrinking")
+
+
 @dataclass(frozen=True)
 class NumberOp:
     """One operation: a SymPy expression plus its English phrase.
@@ -60,11 +68,15 @@ class NumberOp:
     - inverse: the id of the op that exactly undoes this one (None if this
       op destroys information — min, mod, floor-divide, ... — such ops can
       never be targeted by negate/flip/unwind).
+    - family: which of FAMILIES the op belongs to — how it moves magnitude
+      (decision 08: the family is drawn by weight, the op inside it
+      uniformly). None only for ops the generator never draws.
     """
 
     expr: sp.Expr
     phrase: str
     inverse: str | None = None
+    family: str | None = None
 
     @property
     def id(self) -> str:

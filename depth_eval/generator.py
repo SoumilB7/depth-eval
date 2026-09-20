@@ -18,9 +18,10 @@ Two seeds, two responsibilities, never mixed:
                         5. APPLICATION  how a data line lands: extent,
                                         times, gate, order (each table
                                         skipped when all-default)
-                        6. op        uniform over the pool, drawn LAST so
-                                     the line is drawn inside the rules:
-                                     never a whole-list reset (decision 13)
+                        6. op        its FAMILY by weight, then uniform
+                                     inside it; drawn LAST so the line is
+                                     drawn inside the rules: never a
+                                     whole-list reset (decision 13)
                         7. hold      one gate, then a target
                       The forced nomenclature IS the first probability
                       distribution of instruction creation; the kind tables
@@ -46,7 +47,7 @@ from .meta import META_VERBS, MetaInstruction
 from .nomenclature import CATEGORIES, DIRECT_KINDS, RELATIVE_KINDS, check_weights
 from .ops.scope import (ALL, GATE_KINDS, SCOPE_KINDS, above, bigger_at, changed_more,
                         even, even_at, odd, odd_at, same_as, span, stride, touched, untouched)
-from .ops import NUMBER_OPS, At, B, Changed, P, POS, START
+from .ops import FAMILIES, NUMBER_OPS, At, B, Changed, P, POS, START
 from .ops.base import NumberOp
 from .ops.operands import uses_live
 from .sequence import make_sequences
@@ -117,6 +118,13 @@ class GeneratorConfig:
     move_weights: dict[str, int] = field(
         default_factory=lambda: {"reverse": 25, "rotate": 25, "swap": 25, "sort": 25}
     )
+    # DRAW 6 — the op's FAMILY (how it moves magnitude), then the op
+    # uniformly inside it (decision 08). 40/10/50 ruled 2026-09-26: the old
+    # uniform op draw (= 20/13/67) collapsed the most and repaired the most;
+    # scaling at 10% keeps multiplication in without growing magnitude.
+    op_family_weights: dict[str, int] = field(
+        default_factory=lambda: {"linear": 40, "scaling": 10, "shrinking": 50}
+    )
     hold_chance: float = 0.25
     include_powers: bool = False  # n**x / x**n explode under chaining
     # ACCEPTANCE floors, applied by the validator to the trial run (decision 13):
@@ -141,6 +149,7 @@ class GeneratorConfig:
         check_weights("gate_weights", self.gate_weights, GATE_KINDS)
         check_weights("order_weights", self.order_weights, ORDERS)
         check_weights("move_weights", self.move_weights, MOVE_NAMES)
+        check_weights("op_family_weights", self.op_family_weights, FAMILIES)
 
 
 @dataclass(frozen=True)
@@ -182,15 +191,20 @@ def _direct_operand(rng: random.Random, config: GeneratorConfig, length: int, ki
     return rng.randint(config.literal_low, config.literal_high)
 
 
-def _draw_op(rng: random.Random, pool: list[str], operand, how: Application) -> NumberOp:
-    """The op, uniform over the pool — minus "replace with x" when the line
-    would wipe the whole list (whole extent, operand never reading the live
-    list): a reset is never drawn (decision 13; the validator's `reset` kind
-    is the authority)."""
+def _draw_op(rng: random.Random, config: GeneratorConfig, pool: list[str], operand,
+             how: Application) -> NumberOp:
+    """The op: its FAMILY by `op_family_weights`, then uniform inside the
+    family (decision 08) — over the legal pool, which drops "replace with
+    x" when the line would wipe the whole list (whole extent, operand never
+    reading the live list): a reset is never drawn (decision 13; the
+    validator's `reset` kind is the authority). A family with no legal op
+    for this line is skipped."""
     legal = pool
     if how.extent is ALL and not uses_live(operand):
         legal = [op_id for op_id in pool if op_id != "x"]
-    return NUMBER_OPS[rng.choice(legal)]
+    present = {NUMBER_OPS[op_id].family for op_id in legal}
+    family = _weighted(rng, {f: w for f, w in config.op_family_weights.items() if f in present})
+    return NUMBER_OPS[rng.choice([op_id for op_id in legal if NUMBER_OPS[op_id].family == family])]
 
 
 def _random_scope(rng: random.Random, config: GeneratorConfig, length: int, others: list[int]):
@@ -313,14 +327,14 @@ def _random_instruction(
             return MoveInstruction(move, hold_until_after=hold(), application=how)
         operand = _direct_operand(rng, config, length, kind)
         how = _random_application(rng, config, length, behind)
-        op = _draw_op(rng, pool, operand, how)
+        op = _draw_op(rng, config, pool, operand, how)
         return Instruction(op, operand, hold_until_after=hold(), application=how)
 
     kind = _weighted(rng, config.relative_weights)
     if kind == "effect":
         j, held = consumed()
         how = _random_application(rng, config, length, behind)
-        op = _draw_op(rng, pool, Changed(j), how)
+        op = _draw_op(rng, config, pool, Changed(j), how)
         return Instruction(op, Changed(j), hold_until_after=held, application=how)
     verb = META_VERBS[rng.choice(RELATIVE_KINDS[kind][1])]
     if verb.klass == "undo":
