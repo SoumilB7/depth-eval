@@ -191,3 +191,56 @@ def mix(instructions) -> dict[str, int]:
 def split(instructions) -> dict[str, int]:
     """Just the top-level split: {'direct': n, 'relative': m}."""
     return dict(Counter(classify(ins).category for ins in instructions))
+
+
+# ---- R and d: reference depth, MEASURED per question (decision 10) ----
+# An edge i -> j wherever line i names line j's result (Changed/Touched in
+# an operand, scope or gate; undo of j), definition or scope ("the same
+# selection as j"; a meta line's target) — or plants a result reference
+# into j (a rewrite's operand). Holds are excluded: they only reorder.
+DISTANCES = ("near", "mid", "far")
+
+
+def distance(i: int, j: int, steps: int) -> str:
+    """near: |i − j| <= steps/3 · far: > 2·steps/3 · mid: between."""
+    gap = abs(i - j)
+    return "near" if 3 * gap <= steps else "far" if 3 * gap > 2 * steps else "mid"
+
+
+def references(instructions) -> dict[int, set[int]]:
+    from .dag import consumes  # dag imports lines/meta; imported here to keep this module light
+    from .ops.operands import scope_refs
+    edges: dict[int, set[int]] = {}
+    for i, ins in enumerate(instructions, start=1):
+        refs = set(consumes(ins))
+        if isinstance(ins, MetaInstruction):
+            refs.add(ins.target)
+            if ins.operand is not None:
+                refs |= effect_refs(ins.operand)
+        else:
+            refs |= scope_refs(ins.application.extent.where)
+        edges[i] = {j for j in refs if j != i}
+    return edges
+
+
+def reference_shape(instructions) -> tuple[int, float]:
+    """(R, d): R = the longest reference chain, in hops (0 = no coupling);
+    d = the share of references that reach FAR. Written `R3 d0.25`."""
+    edges = references(instructions)
+    longest: dict[int, int] = {}
+
+    def depth(i: int, path: frozenset) -> int:
+        if i in longest:
+            return longest[i]
+        best = 0
+        for j in edges.get(i, ()):
+            if j not in path:
+                best = max(best, 1 + depth(j, path | {j}))
+        longest[i] = best
+        return best
+
+    steps = len(instructions)
+    R = max((depth(i, frozenset({i})) for i in edges), default=0)
+    pairs = [(i, j) for i, js in edges.items() for j in js]
+    d = sum(distance(i, j, steps) == "far" for i, j in pairs) / len(pairs) if pairs else 0.0
+    return R, round(d, 2)

@@ -25,3 +25,13 @@ CASES = {
 def test_labels_and_types():
     for ins, (label, typ) in CASES.items():
         assert (str(classify(ins)), type_of(ins)) == (label, typ)
+
+
+def test_reference_shape_R_and_d():
+    from depth_eval import Changed
+    from depth_eval.nomenclature import reference_shape
+    lone = Instruction(O["n + x"], 1)
+    assert reference_shape([lone] * 5) == (0, 0.0)                                   # no coupling
+    chain = [lone, Instruction(O["n + x"], Changed(1)), Instruction(O["n + x"], Changed(2))]
+    assert reference_shape(chain) == (2, 0.0)                                        # 3 -> 2 -> 1, near
+    assert reference_shape([lone] * 9 + [MI(V["mirror"], 1)]) == (1, 1.0)            # one far read

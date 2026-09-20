@@ -56,6 +56,12 @@
     "scaling": 10,
     "shrinking": 50
   },
+  "distance_weights": {
+    "near": 1,
+    "mid": 1,
+    "far": 1
+  },
+  "chain_bias": 0.0,
   "hold_chance": 0.1,
   "include_powers": false,
   "min_distinct_fraction": 0.3,

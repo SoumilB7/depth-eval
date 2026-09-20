@@ -44,7 +44,8 @@ from .instructions import Step, execute
 from .lines import Instruction, MoveInstruction, render_question
 from .ops.moves import MOVE_NAMES, ascending, reverse, rotate, swap
 from .meta import META_VERBS, MetaInstruction
-from .nomenclature import CATEGORIES, DIRECT_KINDS, RELATIVE_KINDS, check_weights
+from .nomenclature import (CATEGORIES, DIRECT_KINDS, DISTANCES, RELATIVE_KINDS, check_weights,
+                           classify, distance)
 from .ops.scope import (ALL, GATE_KINDS, SCOPE_KINDS, above, bigger_at, changed_more,
                         even, even_at, odd, odd_at, same_as, span, stride, touched, untouched)
 from .ops import FAMILIES, NUMBER_OPS, At, B, Changed, P, POS, START
@@ -125,6 +126,18 @@ class GeneratorConfig:
     op_family_weights: dict[str, int] = field(
         default_factory=lambda: {"linear": 40, "scaling": 10, "shrinking": 50}
     )
+    # REFERENCE SHAPE (decision 08) — every reference target (a result, a
+    # definition, a scope, a meta target; never a hold) is drawn from the
+    # LEGAL set, then: with chance `chain_bias` only candidates that are
+    # themselves relative (builds chains, R), then a distance bucket by
+    # `distance_weights` among the non-empty ones (near <= steps/3, far >
+    # 2·steps/3), then a line uniformly inside it
+    # (ruled 2026-09-26, graded by state: shallow 1/1/1 & 0 · default
+    # 1/1/2 & .5 · deep 1/1/3 & .8 — the defaults here are default's)
+    distance_weights: dict[str, int] = field(
+        default_factory=lambda: {"near": 1, "mid": 1, "far": 2}
+    )
+    chain_bias: float = 0.5
     hold_chance: float = 0.25
     include_powers: bool = False  # n**x / x**n explode under chaining
     # ACCEPTANCE floors, applied by the validator to the trial run (decision 13):
@@ -150,6 +163,9 @@ class GeneratorConfig:
         check_weights("order_weights", self.order_weights, ORDERS)
         check_weights("move_weights", self.move_weights, MOVE_NAMES)
         check_weights("op_family_weights", self.op_family_weights, FAMILIES)
+        check_weights("distance_weights", self.distance_weights, DISTANCES)
+        if not 0.0 <= self.chain_bias <= 1.0:
+            raise ValueError(f"chain_bias must be in [0, 1], got {self.chain_bias}")
 
 
 @dataclass(frozen=True)
@@ -207,7 +223,8 @@ def _draw_op(rng: random.Random, config: GeneratorConfig, pool: list[str], opera
     return NUMBER_OPS[rng.choice([op_id for op_id in legal if NUMBER_OPS[op_id].family == family])]
 
 
-def _random_scope(rng: random.Random, config: GeneratorConfig, length: int, others: list[int]):
+def _random_scope(rng: random.Random, config: GeneratorConfig, length: int, others: list[int],
+                  pick):
     if {k for k, w in config.scope_weights.items() if w > 0} == {"all"}:
         return ALL  # no draw: the stream is untouched
     kind = _weighted(rng, config.scope_weights)
@@ -218,44 +235,45 @@ def _random_scope(rng: random.Random, config: GeneratorConfig, length: int, othe
         a = rng.randint(0, length - 2)
         return span(a, rng.randint(a + 1, length - 1))
     if kind == "value":
-        pick = rng.randint(0, 2)
-        return even() if pick == 0 else odd() if pick == 1 else above(
+        which = rng.randint(0, 2)
+        return even() if which == 0 else odd() if which == 1 else above(
             rng.randint(config.literal_low, config.literal_high))
     if kind == "touched" and others:
-        j = rng.choice(others)
+        j = pick(others)
         return touched(j) if rng.random() < 0.5 else untouched(j)
     if kind == "same" and others:
-        return same_as(rng.choice(others))
+        return same_as(pick(others))
     return ALL
 
 
-def _random_gate(rng: random.Random, config: GeneratorConfig, length: int, others: list[int]):
+def _random_gate(rng: random.Random, config: GeneratorConfig, length: int, others: list[int],
+                 pick):
     if {k for k, w in config.gate_weights.items() if w > 0} == {"always"}:
         return ALWAYS  # no draw: the stream is untouched
     kind = _weighted(rng, config.gate_weights)
     if kind == "value":
-        pick, i = rng.randint(0, 2), rng.randint(0, length - 1)
-        if pick == 0:
+        which, i = rng.randint(0, 2), rng.randint(0, length - 1)
+        if which == 0:
             return even_at(i)
-        if pick == 1:
+        if which == 1:
             return odd_at(i)
         return bigger_at(i, rng.randint(config.literal_low, config.literal_high))
     if kind == "effect" and others:
-        return changed_more(rng.choice(others), rng.randint(0, length // 2))
+        return changed_more(pick(others), rng.randint(0, length // 2))
     return ALWAYS
 
 
 def _random_application(
-    rng: random.Random, config: GeneratorConfig, length: int, others: list[int],
+    rng: random.Random, config: GeneratorConfig, length: int, others: list[int], pick,
     extent_allowed: bool = True, order_allowed: bool = True,
 ) -> Application:
     """HOW a data line lands: EXTENT, TIMES, GATE, ORDER (map lines only).
     All-default weight tables consume no draws at all."""
-    scope = _random_scope(rng, config, length, others) if extent_allowed else ALL
+    scope = _random_scope(rng, config, length, others, pick) if extent_allowed else ALL
     times = 1
     if {k for k, w in config.times_weights.items() if w > 0} != {"1"}:
         times = int(_weighted(rng, config.times_weights))
-    gate = _random_gate(rng, config, length, others)
+    gate = _random_gate(rng, config, length, others, pick)
     order = "snapshot"
     if order_allowed and {k for k, w in config.order_weights.items() if w > 0} != {"snapshot"}:
         order = _weighted(rng, config.order_weights)
@@ -281,6 +299,25 @@ def _behind(chain: list, number: int) -> list[int]:
     return behind
 
 
+def _picker(rng: random.Random, config: GeneratorConfig, number: int, steps: int, chain: list):
+    """The ONE way a reference target is drawn (decision 08): chain bias,
+    then distance bucket, then uniform — always inside the legal set the
+    caller passes. A slot not drawn yet counts as not relative."""
+    def pick(candidates: list[int]) -> int:
+        if config.chain_bias and rng.random() < config.chain_bias:
+            coupled = [j for j in candidates
+                       if j - 1 < len(chain) and classify(chain[j - 1]).category == "relative"]
+            candidates = coupled or candidates
+        buckets: dict[str, list[int]] = {}
+        for j in candidates:
+            buckets.setdefault(distance(number, j, steps), []).append(j)
+        live = {b: w for b, w in config.distance_weights.items() if b in buckets and w > 0}
+        if not live:
+            return rng.choice(candidates)
+        return rng.choice(buckets[_weighted(rng, live)])
+    return pick
+
+
 def _random_instruction(
     rng: random.Random, config: GeneratorConfig, steps: int, length: int,
     pool: list[str], number: int, chain: list
@@ -291,6 +328,7 @@ def _random_instruction(
     others = [j for j in range(1, steps + 1) if j != number]
     behind = _behind(chain, number)
     ahead = [j for j in others if j > number]
+    pick = _picker(rng, config, number, steps, chain)
     # DRAW 1: the nomenclature. A lone instruction has nothing to couple to.
     category = _weighted(rng, config.category_weights) if others else "direct"
 
@@ -304,36 +342,36 @@ def _random_instruction(
     def consumed():
         """(target, hold) for a line that uses another line's result."""
         if behind and (not ahead or rng.random() < 0.5):
-            return rng.choice(behind), hold()
-        j = rng.choice(ahead)
+            return pick(behind), hold()
+        j = pick(ahead)
         return j, j  # forward: the hold is written on the line itself
 
     if category == "direct":
         kind = _weighted(rng, {k: v for k, v in config.direct_weights.items()})
         if kind == "move":
-            pick = _weighted(rng, config.move_weights)
-            if pick == "reverse":
+            move_name = _weighted(rng, config.move_weights)
+            if move_name == "reverse":
                 move = reverse()
-            elif pick == "rotate":
+            elif move_name == "rotate":
                 move = rotate(rng.randint(1, length - 1))
-            elif pick == "swap":
+            elif move_name == "swap":
                 a = rng.randint(0, length - 1)
                 move = swap(a, rng.choice([j for j in range(length) if j != a]))
             else:
                 move = ascending()
-            how = _random_application(rng, config, length, behind,
+            how = _random_application(rng, config, length, behind, pick,
                                       extent_allowed=move.name != "swap",
                                       order_allowed=False)
             return MoveInstruction(move, hold_until_after=hold(), application=how)
         operand = _direct_operand(rng, config, length, kind)
-        how = _random_application(rng, config, length, behind)
+        how = _random_application(rng, config, length, behind, pick)
         op = _draw_op(rng, config, pool, operand, how)
         return Instruction(op, operand, hold_until_after=hold(), application=how)
 
     kind = _weighted(rng, config.relative_weights)
     if kind == "effect":
         j, held = consumed()
-        how = _random_application(rng, config, length, behind)
+        how = _random_application(rng, config, length, behind, pick)
         op = _draw_op(rng, config, pool, Changed(j), how)
         return Instruction(op, Changed(j), hold_until_after=held, application=how)
     verb = META_VERBS[rng.choice(RELATIVE_KINDS[kind][1])]
@@ -344,11 +382,11 @@ def _random_instruction(
         targets = [j for j in ahead if j > (held or 0)]  # still ahead when the editor runs
         if not targets:  # last slot: nothing left to change — read a definition instead
             verb = META_VERBS[rng.choice(RELATIVE_KINDS["definition"][1])]
-            target = rng.choice(others)
+            target = pick(others)
         else:
-            target = rng.choice(targets)
+            target = pick(targets)
     else:
-        target, held = rng.choice(others), hold()
+        target, held = pick(others), hold()
     operand = _direct_operand(rng, config, length) if verb.takes_operand else None
     return MetaInstruction(verb, target, operand=operand, hold_until_after=held)
 
