@@ -68,7 +68,8 @@ import sympy as sp
 
 from .application import locked_reason
 from .dag import consumes, schedule
-from .instructions import NOOP, ExecutionError, Step, execute
+from .definitions import CANCELLED
+from .instructions import NOOP, EditStep, ExecutionError, Step, execute
 from .lines import DataLine, Instruction, MoveInstruction
 from .meta.base import MetaInstruction
 from .ops.operands import B, L, P, POS, START, effect_refs, scope_refs, uses_live
@@ -165,6 +166,26 @@ def _operand_issues(i, operand, length, companion_length):
     return issues
 
 
+# meta-on-meta (decision 06): only these verbs may aim at a meta line —
+# amplify/flip/rewrite edit an op or operand, and a meta line has neither
+META_ON_META = ("mirror", "negate", "unwind", "cancel")
+
+
+def _chain_end(instructions, j: int) -> int | None:
+    """Follow read verbs (mirror/negate) from line j to where the chain
+    ends: a data line, an edit line or an undo line. None on a loop (the
+    definition-cycle check names it)."""
+    seen = set()
+    while True:
+        ins = instructions[j - 1]
+        if not (isinstance(ins, MetaInstruction) and ins.verb.klass == "read"):
+            return j
+        if j in seen or not 1 <= ins.target <= len(instructions):
+            return None
+        seen.add(j)
+        j = ins.target
+
+
 def _meta_issues(i, ins: MetaInstruction, instructions):
     issues = []
     k = len(instructions)
@@ -179,18 +200,30 @@ def _meta_issues(i, ins: MetaInstruction, instructions):
                 f"but the chain is 1..{k}",
             )
         )
-    elif isinstance(instructions[ins.target - 1], MetaInstruction):
+    elif (isinstance(instructions[ins.target - 1], MetaInstruction)
+          and ins.verb.name not in META_ON_META):
         issues.append(
             Issue(
                 "bad_meta_target",
                 i,
-                f"instruction {i} targets instruction {ins.target}, "
-                "which is itself a meta instruction",
+                f"instruction {i} wants to {ins.verb.name} instruction {ins.target}, "
+                "a meta instruction — it has no op or operand to change",
             )
         )
     else:
-        target = instructions[ins.target - 1]
-        if ins.verb.name in ("amplify", "rewrite") and not isinstance(target, Instruction):
+        # negate/unwind are judged on what the target's chain ENDS in: a
+        # data line (its op must be invertible, a move always unwinds), an
+        # edit (negate: nothing to invert; unwind: it did nothing — fine),
+        # or an undo (negate: nothing to invert; unwind: a redo — fine)
+        end = _chain_end(instructions, ins.target) if ins.verb.name in ("negate", "unwind") else ins.target
+        target = instructions[(end or ins.target) - 1]
+        if isinstance(target, MetaInstruction):
+            if ins.verb.name == "negate":
+                issues.append(Issue(
+                    "not_invertible", i,
+                    f"instruction {i} wants to negate instruction {ins.target}, whose chain "
+                    f"ends in a {target.verb.name} — it has no inverse"))
+        elif ins.verb.name in ("amplify", "rewrite") and not isinstance(target, Instruction):
             issues.append(
                 Issue(
                     "bad_meta_target",
@@ -410,6 +443,28 @@ def _static_issues(
                 issues.append(Issue(
                     "dead_edit", i,
                     f"instruction {i} changes instruction {j}, which has already run by then"))
+        # a mirror whose chain ends in an edit or an undo PERFORMS it at its
+        # own turn: the edited line must still be ahead, the undone line
+        # must already have run — the same timeline rules, judged from the
+        # mirror's seat, blamed on the mirror
+        for i, ins in enumerate(instructions, start=1):
+            if not (isinstance(ins, MetaInstruction) and ins.verb.name == "mirror"):
+                continue
+            end = _chain_end(instructions, ins.target)
+            last = instructions[end - 1] if end else None
+            if not isinstance(last, MetaInstruction):
+                continue
+            j = last.target
+            if last.verb.klass == "edit" and position[j] < position[i]:
+                issues.append(Issue(
+                    "dead_edit", i,
+                    f"instruction {i} repeats instruction {end}'s change to instruction {j}, "
+                    f"which has already run by then"))
+            elif last.verb.klass == "undo" and position[j] > position[i]:
+                issues.append(Issue(
+                    "unexecuted_reference", i,
+                    f"instruction {i} repeats instruction {end}'s undo of instruction {j}, "
+                    f"which has not run by then"))
         # a planted operand (rewrite's x) is resolved when the TARGET runs:
         # its references are judged from the target's seat, blamed on the
         # editor who planted them
@@ -462,8 +517,15 @@ def validate(
     allowed = floors.noops(len(instructions))
     if len(noops) > allowed:
         last = noops[-1].instruction
+        # a CANCELLED line is a no-op whatever it says, so redrawing it can
+        # never lower the count — blame the line that cancelled it instead
+        # (its redraw removes both no-ops); repair still re-draws one line
+        cancelled_by = {e.target: e.instruction for e in trace
+                        if isinstance(e, EditStep) and e.before != e.after and e.after == CANCELLED}
+        blamed = cancelled_by.get(last, last)
+        why = (f"instruction {last} is the last of them" if blamed == last else
+               f"the last of them, instruction {last}, is cancelled by instruction {blamed}")
         issues.append(Issue(
-            "too_many_noops", last,
-            f"{len(noops)} lines leave the list unchanged, at most {allowed} may — "
-            f"instruction {last} is the last of them"))
+            "too_many_noops", blamed,
+            f"{len(noops)} lines leave the list unchanged, at most {allowed} may — {why}"))
     return issues

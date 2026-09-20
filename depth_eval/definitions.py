@@ -66,5 +66,34 @@ class MoveDef:
         return None if move is None else replace(self, move=move)
 
 
+@dataclass(frozen=True)
+class MetaDef:
+    """What a META line currently means (decision 06, meta-on-meta). A meta
+    line has no op or operand of its own to edit, so only cancel changes it
+    (to None); reads follow it, and it quacks like its MetaInstruction for
+    the verb transforms (verb, target, operand). `line` owns the B in its
+    operand — a rewrite's operand stays the rewrite line's list even when a
+    mirror re-applies it."""
+
+    verb: object         # a MetaVerb
+    target: int
+    operand: object | None
+    line: int
+
+    @property
+    def name(self) -> str:
+        return self.verb.name
+
+    def describe(self) -> str:
+        tail = f" := {self.operand}" if self.operand is not None else ""
+        return f"{self.verb.name} {self.target}{tail}"
+
+    def inverted(self) -> None:
+        return None  # an edit or an undo has no inverse (negate is refused)
+
+
+CANCELLED = "(cancelled)"  # how a cancelled definition reads in the trace
+
+
 def describe(definition) -> str:
-    return "(cancelled)" if definition is None else definition.describe()
+    return CANCELLED if definition is None else definition.describe()

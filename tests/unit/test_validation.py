@@ -50,7 +50,11 @@ def test_position_kinds():
 
 def test_meta_kinds():
     assert kinds([Instruction(O["Mod(n, x)"], 2), MI(V["negate"], 1)]) == ["not_invertible"]
-    assert kinds([MI(V["cancel"], 3), MI(V["mirror"], 1), Instruction(O["n + x"], 1)]) == ["bad_meta_target"]
+    # meta-on-meta (decision 06): mirror/negate/unwind/cancel may aim at a meta line,
+    # amplify/flip/rewrite may not (a meta line has no op or operand)
+    assert kinds([MI(V["cancel"], 3), MI(V["mirror"], 1), Instruction(O["n + x"], 1)]) == []
+    assert kinds([Instruction(O["n + x"], 1), MI(V["mirror"], 1), MI(V["amplify"], 2)]) == ["bad_meta_target"]
+    assert kinds([MI(V["amplify"], 3), MI(V["negate"], 1), Instruction(O["n + x"], 1)]) == ["not_invertible"]
     assert kinds([MI(V["rewrite"], 2), Instruction(O["n + x"], 1)]) == ["malformed_operand"]
     assert kinds([MI(V["amplify"], 2, hold_until_after=2), Instruction(O["n + x"], 1)]) == ["dead_edit"]
 

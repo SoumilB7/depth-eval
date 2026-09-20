@@ -33,7 +33,7 @@ import sympy as sp
 
 from .application import Application
 from .dag import schedule
-from .definitions import MapDef, MoveDef, describe
+from .definitions import MapDef, MetaDef, MoveDef, describe
 from .lines import Instruction, MoveInstruction
 from .meta.base import MetaInstruction
 from .ops import NUMBER_OPS
@@ -113,6 +113,11 @@ class MapRecord:
             seq = [inverse.apply(v, xv) if m else v for v, xv, m in zip(seq, xs, mask)]
         return seq, [any(mask[i] for _, mask in self.passes) for i in range(len(seq))]
 
+    def redo(self, seq: list[int]) -> tuple[list[int], list[bool]]:
+        for xs, mask in self.passes:
+            seq = [self.op.apply(v, xv) if m else v for v, xv, m in zip(seq, xs, mask)]
+        return seq, [any(mask[i] for _, mask in self.passes) for i in range(len(seq))]
+
 
 @dataclass(frozen=True)
 class MoveRecord:
@@ -126,6 +131,24 @@ class MoveRecord:
             inverse[s] = i
         return ([seq[inverse[i]] for i in range(len(seq))],
                 [self.permutation[i] != i for i in range(len(seq))])
+
+    def redo(self, seq: list[int]) -> tuple[list[int], list[bool]]:
+        return ([seq[self.permutation[i]] for i in range(len(seq))],
+                [self.permutation[i] != i for i in range(len(seq))])
+
+
+@dataclass(frozen=True)
+class UndoRecord:
+    """What an undo line actually did: it undid `done`. Undoing THAT
+    re-applies `done` (unwind of an unwind = redo, decision 06)."""
+
+    done: object  # MapRecord | MoveRecord | UndoRecord
+
+    def undo(self, seq: list[int]) -> tuple[list[int], list[bool]]:
+        return self.done.redo(seq)
+
+    def redo(self, seq: list[int]) -> tuple[list[int], list[bool]]:
+        return self.done.undo(seq)
 
 
 def execute(
@@ -144,13 +167,15 @@ def execute(
     effects: dict[int, Effect] = {}
     trace: list = []
     nothing = Effect(0, (False,) * len(seq))
-    definitions: dict[int, MapDef | MoveDef | None] = {}
+    definitions: dict[int, MapDef | MoveDef | MetaDef | None] = {}
     for n, ins in enumerate(instructions, start=1):
         if isinstance(ins, Instruction):
             definitions[n] = MapDef(ins.op, ins.operand, ins.application, n, n)
         elif isinstance(ins, MoveInstruction):
             definitions[n] = MoveDef(ins.move, ins.application, n)
-    executed: dict[int, MapRecord | MoveRecord | None] = {}
+        else:
+            definitions[n] = MetaDef(ins.verb, ins.target, ins.operand, n)
+    executed: dict[int, MapRecord | MoveRecord | UndoRecord | None] = {}
 
     def list_of(owner: int) -> list[int] | None:
         return companions[owner - 1] if companions is not None else None
@@ -265,7 +290,7 @@ def execute(
             return
         before = seq
         seq, mask = rec.undo(seq)
-        record(number, before, mask, None, None, None,
+        record(number, before, mask, UndoRecord(rec), None, None,
                f"undo of instruction {target}", f"undo what instruction {target} did")
 
     def run_definition(number: int, definition) -> None:
@@ -276,27 +301,40 @@ def execute(
         else:
             run_map(number, definition)
 
+    def current(k: int, depth: int = 0):
+        """What line k would do if it ran now: a data definition, an edit or
+        undo (its MetaDef), or None (cancelled). Read verbs are followed down
+        the chain — mirror passes it through, negate inverts it."""
+        if depth > len(instructions):
+            raise ValueError("definition cycle")
+        d = definitions.get(k)
+        if isinstance(d, MetaDef) and d.verb.klass == "read":
+            inner = current(d.target, depth + 1)
+            return None if inner is None else d.verb.transform(inner, d, d.line)
+        return d
+
+    def apply_edit(number: int, edit: MetaDef) -> None:
+        old = definitions.get(edit.target)
+        new = None if old is None else edit.verb.transform(old, edit, edit.line)
+        definitions[edit.target] = new
+        effects[number] = nothing
+        executed[number] = None
+        trace.append(EditStep(number, edit.target, describe(old), describe(new)))
+
     for number in order:
         ins = instructions[number - 1]
         try:
-            if not isinstance(ins, MetaInstruction):
-                run_definition(number, definitions[number])
-                continue
-            verb, target = ins.verb, definitions.get(ins.target)
-            if verb.klass == "edit":
-                new = None if target is None else verb.transform(target, ins, number)
-                definitions[ins.target] = new
-                effects[number] = nothing
-                executed[number] = None
-                trace.append(EditStep(number, ins.target, describe(target), describe(new)))
-            elif verb.klass == "read":
-                if target is None:
-                    run_noop(number,
-                             f"instruction {ins.target} is cancelled — nothing to {verb.name}")
-                else:
-                    run_definition(number, verb.transform(target, ins, number))
-            else:  # undo
-                run_unwind(number, ins.target)
+            action = current(number)
+            if action is None:
+                run_noop(number, "cancelled — do nothing" if definitions[number] is None
+                         else f"instruction {ins.target} is cancelled — nothing to {ins.verb.name}")
+            elif isinstance(action, MetaDef):
+                if action.verb.klass == "edit":
+                    apply_edit(number, action)
+                else:  # undo — its own, or one a mirror reached
+                    run_unwind(number, action.target)
+            else:
+                run_definition(number, action)
         except ExecutionError:
             raise
         except ValueError as e:

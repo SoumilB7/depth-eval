@@ -54,3 +54,11 @@ def test_unwind_replays_recorded_x():
 def test_rewrite_operand_binds_to_editor_list():
     rows = [[10, 20, 30], [100, 200, 300]]
     assert execute([MI(V["rewrite"], 2, operand=B[0]), Instruction(O["n + x"], 5)], [0], rows)[0] == [10]
+
+
+def test_meta_on_meta():
+    # mirror of an edit repeats it (amplify twice = x4); unwind of an unwind is a redo
+    assert execute([MI(V["amplify"], 3), MI(V["mirror"], 1), Instruction(O["n + x"], 1)], [10])[0] == [14]
+    assert execute([Instruction(O["n*x"], 3), MI(V["unwind"], 1), MI(V["unwind"], 2)], [10])[0] == [30]
+    # a cancelled canceller never cancels
+    assert execute([MI(V["cancel"], 2), MI(V["cancel"], 3), Instruction(O["n + x"], 7)], [10])[0] == [17]
