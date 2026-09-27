@@ -33,4 +33,7 @@ over MCP) — for runs without an API key, labelled separately.
 **Pre-release audit.** Before any run, every line that repeats or undoes a
 line which changes another instruction (rather than the list) was found
 to read two ways; those lines now say exactly what they do. The set was
-rebuilt and re-verified with that wording.
+rebuilt and re-verified with that wording. The first pilot run found the
+grader reading a reply whose chatter contained braces (`Touched = {3, 7}`)
+as malformed; it now takes the first JSON object holding the stage log, as
+the answer contract always said.

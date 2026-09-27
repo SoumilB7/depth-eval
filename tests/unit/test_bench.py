@@ -46,6 +46,8 @@ def test_a_question_is_deterministic_and_keeps_measures_out_of_the_prompt(q):
 def test_grading_exact_and_reply_text(q):
     assert graded(q, truth_log(q)).exact
     assert graded(q, "Here you go:\n```json\n" + json.dumps(truth_log(q)) + "\n```").exact
+    chatter = "Tracking Touched[2] = {3, 7} and {} as I go.\n```json\n"   # braces before the log
+    assert graded(q, chatter + json.dumps(truth_log(q)) + "\n```").exact
 
 
 def test_grading_names_the_first_divergence_and_reports_every_stage(q):

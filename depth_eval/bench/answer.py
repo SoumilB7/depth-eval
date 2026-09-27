@@ -19,12 +19,27 @@ class MalformedAnswer(ValueError):
 
 
 def _load(text: str | bytes):
+    """The whole reply as JSON, else the first object in it holding "stages"
+    (chatter may itself contain braces, e.g. "Touched = {3, 7}"), else the
+    first JSON object in it."""
     text = text.decode() if isinstance(text, bytes) else text
-    for candidate in (text.strip(), text[text.find("{"): text.rfind("}") + 1]):
+    try:
+        return json.loads(text.strip())
+    except ValueError:
+        pass
+    decoder, first = json.JSONDecoder(), None
+    for i, ch in enumerate(text):
+        if ch != "{":
+            continue
         try:
-            return json.loads(candidate)
+            obj = decoder.raw_decode(text, i)[0]
         except ValueError:
             continue
+        if isinstance(obj, dict) and "stages" in obj:
+            return obj
+        first = obj if first is None else first
+    if first is not None:
+        return first
     raise MalformedAnswer("no JSON object found in the answer")
 
 
