@@ -4,6 +4,16 @@ The benchmark version pins the question set: `benchmark/v1/questions.jsonl`
 changes only with a new version, and `depth-eval verify` proves a copy
 matches the code that made it.
 
+## 1.3.0 — the opening sentence
+
+Same 360 questions and true answers. The prompt opened "Apply the
+instructions by careful reasoning only" while every runner gives two
+calculators — a model could read it as forbidding them (one pilot answer
+used none). It now says: "Apply the instructions by careful reasoning and
+report the list after every one; if you are given calculators, use them
+for arithmetic only." Flagged 2026-09-26 as blocking before the first
+run and missed until an outside review; fixed before any run on 1.2.0.
+
 ## 1.2.0 — second wording audit
 
 Same 360 questions and true answers; the rules text changed in two

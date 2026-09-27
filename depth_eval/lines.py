@@ -104,7 +104,7 @@ def render_question(instructions: list, companions: list[list[int]] | None = Non
 
 
 CONVENTIONS = """\
-You are given a starting list of integers and a numbered list of instructions. Apply the instructions by careful reasoning only and report the list after every one. Each instruction says exactly what it does; these are the only rules that live outside the lines.
+You are given a starting list of integers and a numbered list of instructions. Apply the instructions by careful reasoning and report the list after every one; if you are given calculators, use them for arithmetic only. Each instruction says exactly what it does; these are the only rules that live outside the lines.
 
 - Positions count from 0. "The number at position i of the list" is the value there at the moment the instruction runs; "the starting list" is the list before anything ran; "this instruction's list B" is the private list printed on that line; "its own position" is the position of the number being replaced.
 - Instructions run in numbered order, each exactly once. A line that says "hold this instruction until instruction k has executed" skips its turn and runs immediately after k. If several lines are waiting on the same k they run in listing order, and anything they in turn release runs right after them in the same way.

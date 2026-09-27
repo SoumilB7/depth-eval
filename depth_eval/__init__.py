@@ -1,4 +1,4 @@
-__version__ = "1.2.0"  # the benchmark version: the question set changes only with it
+__version__ = "1.3.0"  # the benchmark version: the question set changes only with it
 
 from .application import ALWAYS, WHOLE, Application
 from .configs import list_configs, load_config

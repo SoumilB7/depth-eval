@@ -125,9 +125,9 @@ The question set changes only with a new version.
 
 One question from each of the 36 cells (sample 01), through the arena.
 These ran on earlier versions of the rules text — the questions, lists
-and answers are the same as 1.2.0 — and each miss was traced through the
+and answers are the same as 1.3.0 — and each miss was traced through the
 model's own path; the wording gaps they exposed are what 1.1.0 and 1.2.0
-fixed. They are not 1.2.0 results.
+fixed. They are not 1.3.0 results.
 
 | model | version | exact | depth reached | by instructions 10 / 20 / 40 / 80 |
 |---|---|---|---|---|
