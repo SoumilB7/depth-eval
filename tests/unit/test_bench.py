@@ -182,8 +182,20 @@ def test_the_rules_say_what_the_engine_does():
     # ... and a line that ran applied to its selection even where nothing changed (1.2)
     assert run([Instruction(O["n + x"], 0, application=Application(extent=span(0, 0))),
                 Instruction(O["n + x"], 10, application=Application(extent=touched(1)))], [0, 0]) == [10, 0]
+    # ... but a move applied only where a value moved: a sort leaving the 2 in place (1.2)
+    from depth_eval.lines import MoveInstruction
+    from depth_eval.ops.moves import ascending
+    assert run([MoveInstruction(ascending(), application=Application(extent=span(0, 2))),
+                Instruction(O["n + x"], 10, application=Application(extent=touched(1)))], [3, 2, 1]) == [11, 2, 13]
+    # ... counting a position that received an equal value from elsewhere
+    from depth_eval.ops.moves import reverse
+    assert run([MoveInstruction(reverse()),
+                Instruction(O["n + x"], 10, application=Application(extent=touched(1)))], [2, 5, 2]) == [12, 5, 12]
     # the operand of "1 minus the number" is the 1: doubled, 2 minus the number (1.2)
     assert run([MI(V["amplify"], 2), Instruction(O["-n + x"], 1)], [5]) == [-3]
+    # an operand given by a "from now on" line is read when the changed line runs (1.2)
+    assert run([MI(V["rewrite"], 3, operand=At(0)), Instruction(O["n + x"], 100), Instruction(O["n + x"], 5)],
+               [1]) == [202]
 
 
 def test_arena_audit_accepts_only_the_exact_setup():

@@ -18,6 +18,20 @@ places, found by auditing every miss of the 1.1.0 pilots (Claude Haiku 4.5
   in "1 minus the number"), which is what "uses double its operand" and
   "uses x as its operand" change (one Haiku miss doubled the number).
 
+Then every miss of both pilots was traced through the model's own path
+(its text and every calculator call) by four independent reviewers,
+which found three more places to pin down before any run on 1.2.0:
+
+- for a move (sort, reverse, rotate, swap), "applied to" is every position
+  that received a value from another position, even an equal value — and
+  not one it left in place; the new "whole selection" sentence now
+  excludes moves instead of contradicting them (a Sonnet miss counted a
+  scoped sort's unmoved number);
+- an operand given by a "from now on" line is read when the changed line
+  runs, not when the "from now on" line does;
+- "x minus the number" is its own inverse whatever x is (a number, a
+  count, a value from a list).
+
 ## 1.1.0 — wording audit
 
 Same 360 questions — the same starting lists, instructions and true
