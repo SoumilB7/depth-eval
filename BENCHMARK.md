@@ -36,10 +36,11 @@ instruction later), each with the whole list after it; a line that changes
 nothing still gets an entry. The first JSON object in the reply is read;
 code fences and surrounding text are tolerated.
 
-**Allowed help** — reasoning only. The reference solver may call two
-calculators (integer expressions, one value or a whole list) and nothing
-else; no code execution, no files, no retrieval. Report results with
-calculator use stated; results without any tools are a separate setting.
+**Allowed help** — reasoning, plus two calculators (integer expressions,
+one value or a whole list) and nothing else: no code execution, no files,
+no retrieval. Arithmetic is offloaded so that what is measured is keeping
+the state, not multiplying; every v1 result is reported in this one
+setting.
 
 ## The question set
 

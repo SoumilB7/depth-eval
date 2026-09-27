@@ -24,4 +24,11 @@ the final list right) is primary; depth reached (stages right before the
 first error, as a share) and a per-stage report come with every grade.
 
 **Tooling.** `depth-eval build | verify | run | score`; a reference API
-solver that gets the prompt and two calculators, nothing else.
+solver that gets the prompt and two calculators, nothing else — with each
+model's own thinking settings and full output cap, so no answer is cut
+short by the harness.
+
+**Pre-release audit.** Before any run, every line that repeats or undoes a
+line which changes another instruction (rather than the list) was found
+to read two ways; those lines now say exactly what they do. The set was
+rebuilt and re-verified with that wording.
