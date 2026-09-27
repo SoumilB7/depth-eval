@@ -187,7 +187,10 @@ def test_solver_request_fits_each_model():
 
 
 def test_repeat_and_undo_of_a_change_say_what_they_do():
-    from depth_eval import META_VERBS as V, NUMBER_OPS as O, Instruction, MetaInstruction as MI, execute
+    from depth_eval import META_VERBS as V
+    from depth_eval import NUMBER_OPS as O
+    from depth_eval import Instruction, execute
+    from depth_eval import MetaInstruction as MI
     from depth_eval.lines import render_question
     chain = [MI(V["cancel"], 6), MI(V["unwind"], 1), MI(V["amplify"], 5), MI(V["mirror"], 3),
              Instruction(O["n + x"], 3), Instruction(O["n + x"], 100)]
@@ -199,7 +202,10 @@ def test_repeat_and_undo_of_a_change_say_what_they_do():
 
 def test_the_rules_say_what_the_engine_does():
     """Each clause added by the 1.1 and 1.2 wording audits, checked on the engine."""
-    from depth_eval import META_VERBS as V, NUMBER_OPS as O, At, Instruction, MetaInstruction as MI, execute
+    from depth_eval import META_VERBS as V
+    from depth_eval import NUMBER_OPS as O
+    from depth_eval import At, Instruction, execute
+    from depth_eval import MetaInstruction as MI
     from depth_eval.application import Application
     from depth_eval.ops.scope import even_at, span, touched, untouched
     def run(chain, start):

@@ -27,7 +27,7 @@ raise; the question generator must never emit them.
 
 from .lines import DataLine
 from .meta.base import MetaInstruction
-from .ops.operands import effect_refs, scope_refs
+from .ops.operands import effect_refs
 
 
 def consumes(instruction) -> set[int]:

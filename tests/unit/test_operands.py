@@ -3,7 +3,7 @@
 import pytest
 
 from depth_eval import NUMBER_OPS as O
-from depth_eval import At, B, Changed, Instruction, P, POS, START, execute
+from depth_eval import POS, START, At, B, Changed, Instruction, P, execute
 from depth_eval.ops import position_form
 
 SEQ = [4, 9, 2, 7]

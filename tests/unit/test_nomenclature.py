@@ -2,7 +2,8 @@
 
 from depth_eval import META_VERBS as V
 from depth_eval import NUMBER_OPS as O
-from depth_eval import At, B, Changed, Instruction, MetaInstruction as MI, P, POS, START, classify, type_of
+from depth_eval import POS, START, At, B, Changed, Instruction, P, classify, type_of
+from depth_eval import MetaInstruction as MI
 
 CASES = {
     Instruction(O["n + x"], 7):            ("direct.literal", None),

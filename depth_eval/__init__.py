@@ -5,15 +5,43 @@ from .configs import list_configs, load_config
 from .dag import schedule
 from .generator import GeneratorConfig, Question, generate
 from .instructions import EditStep, ExecutionError, Step, execute
-from .lines import DataLine, Instruction, MoveInstruction, render_prompt, render_question
-from .ops.moves import Move, ascending, reverse, rotate, swap
+from .lines import (
+                  DataLine,
+                  Instruction,
+                  MoveInstruction,
+                  render_prompt,
+                  render_question,
+)
 from .meta import META_VERBS, MetaInstruction, MetaVerb
 from .nomenclature import Label, classify, mix, split, type_of
-from .validation import Floors, Issue, validate
-from .ops import (ALL, NUMBER_OPS, At, B, Changed, NumberOp, P, POS, START, Scope, above,
-                  bigger_at, changed_more, even, even_at, odd, odd_at, resolve,
-                  same_as, span, stride, touched, untouched)
+from .ops import (
+                  ALL,
+                  NUMBER_OPS,
+                  POS,
+                  START,
+                  At,
+                  B,
+                  Changed,
+                  NumberOp,
+                  P,
+                  Scope,
+                  above,
+                  bigger_at,
+                  changed_more,
+                  even,
+                  even_at,
+                  odd,
+                  odd_at,
+                  resolve,
+                  same_as,
+                  span,
+                  stride,
+                  touched,
+                  untouched,
+)
+from .ops.moves import Move, ascending, reverse, rotate, swap
 from .sequence import make_sequence, make_sequences
+from .validation import Floors, Issue, validate
 
 __all__ = [
     "__version__",

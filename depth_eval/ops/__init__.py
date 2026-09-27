@@ -7,22 +7,38 @@ means two entries for the same function collide, and the assert catches it.
 
 from .arithmetic import ARITHMETIC_OPS
 from .base import FAMILIES, Gcd, Lcm, NumberOp, n, x
-from .scope import (ALL, GATE_KINDS, SCOPE_KINDS, Scope, above, bigger_at, changed_more,
-                    even, even_at, odd, odd_at, same_as, span, stride, touched, untouched)
 from .operands import (
-    At,
-    B,
-    Changed,
-    P,
-    POS,
-    START,
-    effect_refs,
-    position_form,
-    resolve_mask,
-    scope_refs,
-    is_elementwise,
-    resolve,
-    resolve_elementwise,
+                    POS,
+                    START,
+                    At,
+                    B,
+                    Changed,
+                    P,
+                    effect_refs,
+                    is_elementwise,
+                    position_form,
+                    resolve,
+                    resolve_elementwise,
+                    resolve_mask,
+                    scope_refs,
+)
+from .scope import (
+                    ALL,
+                    GATE_KINDS,
+                    SCOPE_KINDS,
+                    Scope,
+                    above,
+                    bigger_at,
+                    changed_more,
+                    even,
+                    even_at,
+                    odd,
+                    odd_at,
+                    same_as,
+                    span,
+                    stride,
+                    touched,
+                    untouched,
 )
 
 NUMBER_OPS: dict[str, NumberOp] = {op.id: op for op in ARITHMETIC_OPS}

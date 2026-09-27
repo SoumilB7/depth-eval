@@ -35,13 +35,12 @@ from .application import Application
 from .dag import schedule
 from .definitions import MapDef, MetaDef, MoveDef, describe
 from .lines import Instruction, MoveInstruction
-from .meta.base import MetaInstruction
 from .ops import NUMBER_OPS
 from .ops.base import NumberOp
 from .ops.operands import (
-    P,
     SCOPE_OF,
     Effect,
+    P,
     is_elementwise,
     resolve,
     resolve_condition,

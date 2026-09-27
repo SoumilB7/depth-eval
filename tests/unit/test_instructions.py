@@ -2,7 +2,8 @@
 
 from depth_eval import META_VERBS as V
 from depth_eval import NUMBER_OPS as O
-from depth_eval import At, B, Changed, EditStep, Instruction, MetaInstruction as MI, execute, schedule
+from depth_eval import At, B, Changed, EditStep, Instruction, execute, schedule
+from depth_eval import MetaInstruction as MI
 
 
 def test_hold_reorders_and_operands_resolve_at_execution():

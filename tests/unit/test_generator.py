@@ -2,7 +2,15 @@
 
 import pytest
 
-from depth_eval import GeneratorConfig, classify, generate, list_configs, load_config, make_sequence, make_sequences
+from depth_eval import (
+    GeneratorConfig,
+    classify,
+    generate,
+    list_configs,
+    load_config,
+    make_sequence,
+    make_sequences,
+)
 
 
 def test_every_state_is_deterministic_and_round_trips():

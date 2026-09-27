@@ -69,10 +69,10 @@ import sympy as sp
 from .application import locked_reason
 from .dag import consumes, schedule
 from .definitions import CANCELLED
-from .instructions import NOOP, EditStep, ExecutionError, Step, execute
+from .instructions import EditStep, ExecutionError, Step, execute
 from .lines import DataLine, Instruction, MoveInstruction
 from .meta.base import MetaInstruction
-from .ops.operands import B, L, P, POS, START, effect_refs, scope_refs, uses_live
+from .ops.operands import POS, START, B, L, P, effect_refs, scope_refs, uses_live
 from .ops.scope import ALL
 
 

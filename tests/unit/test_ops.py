@@ -36,6 +36,7 @@ def test_inverse_table():
 
 def test_ops_only_accept_plain_ints():
     import pytest
+
     from depth_eval import At
     with pytest.raises(TypeError):
         O["n + x"].apply(5, At(3))

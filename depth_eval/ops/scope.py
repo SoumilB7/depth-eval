@@ -25,7 +25,7 @@ from dataclasses import dataclass
 
 import sympy as sp
 
-from .operands import _CHANGED, L, P, SCOPE_OF, TOUCHED
+from .operands import _CHANGED, SCOPE_OF, TOUCHED, L, P
 from .operands import phrase as operand_phrase
 
 SCOPE_KINDS = ("all", "stride", "span", "value", "touched", "same")

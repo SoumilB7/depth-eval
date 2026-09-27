@@ -51,8 +51,7 @@ import sympy as sp
 
 from .lines import Instruction, MoveInstruction
 from .meta.base import MetaInstruction
-from .ops.operands import B, L, P, POS, START, _CHANGED, effect_refs, position_form
-from .ops.scope import SCOPE_KINDS
+from .ops.operands import _CHANGED, POS, START, B, L, P, effect_refs, position_form
 
 CATEGORIES = ("direct", "relative")
 
@@ -205,7 +204,8 @@ def distance(i: int, j: int, steps: int) -> str:
 
 
 def references(instructions) -> dict[int, set[int]]:
-    from .dag import consumes  # dag imports lines/meta; imported here to keep this module light
+    # dag imports lines/meta; imported here to keep this module light
+    from .dag import consumes
     from .ops.operands import scope_refs
     edges: dict[int, set[int]] = {}
     for i, ins in enumerate(instructions, start=1):

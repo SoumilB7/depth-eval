@@ -2,8 +2,20 @@
 
 from depth_eval import META_VERBS as V
 from depth_eval import NUMBER_OPS as O
-from depth_eval import (Application, At, B, Changed, Instruction, MetaInstruction as MI, P, POS,
-                        START, even_at, span, validate)
+from depth_eval import (
+    POS,
+    START,
+    Application,
+    At,
+    B,
+    Changed,
+    Instruction,
+    P,
+    even_at,
+    span,
+    validate,
+)
+from depth_eval import MetaInstruction as MI
 
 ROWS = [[1, 2, 3]] * 3
 

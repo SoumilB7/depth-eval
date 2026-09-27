@@ -26,8 +26,17 @@ import json
 from itertools import product
 from pathlib import Path
 
-from depth_eval import (Step, __version__, classify, generate, list_configs, load_config,
-                        render_prompt, schedule, validate)
+from depth_eval import (
+    Step,
+    __version__,
+    classify,
+    generate,
+    list_configs,
+    load_config,
+    render_prompt,
+    schedule,
+    validate,
+)
 from depth_eval.configs import CONFIG_DIR
 from depth_eval.nomenclature import chain_depths, reference_shape
 

@@ -42,15 +42,37 @@ from dataclasses import dataclass, field
 from .application import ALWAYS, ORDERS, TIMES_CHOICES, WHOLE, Application
 from .instructions import Step, execute
 from .lines import Instruction, MoveInstruction, render_question
-from .ops.moves import MOVE_NAMES, ascending, reverse, rotate, swap
 from .meta import META_VERBS, MetaInstruction
-from .nomenclature import (CATEGORIES, DIRECT_KINDS, DISTANCES, RELATIVE_KINDS, check_weights,
-                           classify, distance)
-from .ops.scope import (ALL, GATE_KINDS, SCOPE_KINDS, above, bigger_at, changed_more,
-                        even, even_at, odd, odd_at, same_as, span, stride, touched, untouched)
-from .ops import FAMILIES, NUMBER_OPS, At, B, Changed, P, POS, START
+from .nomenclature import (
+    CATEGORIES,
+    DIRECT_KINDS,
+    DISTANCES,
+    RELATIVE_KINDS,
+    check_weights,
+    classify,
+    distance,
+)
+from .ops import FAMILIES, NUMBER_OPS, POS, START, At, B, Changed, P
 from .ops.base import NumberOp
+from .ops.moves import MOVE_NAMES, ascending, reverse, rotate, swap
 from .ops.operands import uses_live
+from .ops.scope import (
+    ALL,
+    GATE_KINDS,
+    SCOPE_KINDS,
+    above,
+    bigger_at,
+    changed_more,
+    even,
+    even_at,
+    odd,
+    odd_at,
+    same_as,
+    span,
+    stride,
+    touched,
+    untouched,
+)
 from .sequence import make_sequences
 from .validation import Floors, validate
 

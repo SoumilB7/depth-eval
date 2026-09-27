@@ -3,7 +3,12 @@
 import pytest
 
 from depth_eval import NUMBER_OPS
-from depth_eval.bench.calculator import BULK_CALCULATOR, MAX_DIGITS, CalculatorError, evaluate
+from depth_eval.bench.calculator import (
+    BULK_CALCULATOR,
+    MAX_DIGITS,
+    CalculatorError,
+    evaluate,
+)
 
 
 def outcome(expression, names=None):
