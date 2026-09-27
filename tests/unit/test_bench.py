@@ -257,6 +257,9 @@ def test_arena_audit_accepts_only_the_exact_setup():
     assert "ran on" in audit([init], "other")
     assert "tools were" in audit([init | {"tools": sorted(CALCULATORS) + ["Bash"]}], "m")
     assert "skills" in audit([init | {"skills": ["x"]}], "m")
+    builtin = {"name": "telemetry", "path": "builtin", "source": "telemetry@builtin"}
+    assert audit([init | {"plugins": [builtin]}], "m") is None
+    assert "plugins" in audit([init | {"plugins": [builtin, {"name": "x", "source": "x@market"}]}], "m")
     bad = {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash"}]}}
     assert "called Bash" in audit([init, bad], "m")
     assert audit([], "m") == "no session header"

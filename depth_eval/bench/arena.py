@@ -21,7 +21,13 @@ and never mixed with API-run results.
 
 Every question is audited from its own transcript before its answer
 counts: the session's model, its tool list (exactly the two calculators),
-no skills, slash commands or plugins, and every tool call one of the two.
+no skills or slash commands, no plugin except the CLI's built-in ones, and
+every tool call one of the two. Built-in plugins (telemetry, agents-md in
+2.1.284) cannot be switched off — --safe-mode would drop the calculators
+too — and add nothing the model sees: any tool, skill or command they
+gave would fail the checks above, the working folder holds no AGENTS.md,
+and the measured context is the same with and without them. The CLI
+version is recorded with every question.
 A question that fails the audit, or where the CLI itself fails, gets no
 answer file — never scored, listed for a re-run.
 """
@@ -66,9 +72,12 @@ def audit(events: list[dict], model: str) -> str | None:
         return f"ran on {init.get('model')}, not {model}"
     if set(init.get("tools") or []) != CALCULATORS:
         return f"tools were {init.get('tools')}"
-    for key in ("skills", "slash_commands", "plugins"):
+    for key in ("skills", "slash_commands"):
         if init.get(key):
             return f"{key} were loaded: {init.get(key)}"
+    foreign = [p.get("source") for p in init.get("plugins") or [] if not str(p.get("source")).endswith("@builtin")]
+    if foreign:
+        return f"plugins were loaded: {foreign}"
     for e in events:
         if e.get("type") == "assistant":
             for part in e["message"].get("content") or []:
@@ -89,7 +98,9 @@ def solve(prompt: str, model: str) -> tuple[str | None, list[dict], dict]:
                              env={k: v for k, v in os.environ.items() if not k.startswith("CLAUDE_CODE_SIMPLE")})
     events = [json.loads(line) for line in run.stdout.splitlines() if line.strip().startswith("{")]
     result = next((e for e in events if e.get("type") == "result"), {})
-    summary = {"turns": result.get("num_turns"), "cost_usd": result.get("total_cost_usd"),
+    init = next((e for e in events if e.get("subtype") == "init"), {})
+    summary = {"cli": init.get("claude_code_version"),
+               "turns": result.get("num_turns"), "cost_usd": result.get("total_cost_usd"),
                "calculator_calls": sum(1 for e in events if e.get("type") == "assistant"
                                        for p in e["message"].get("content") or []
                                        if p.get("type") == "tool_use")}
