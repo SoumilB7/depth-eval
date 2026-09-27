@@ -2,7 +2,7 @@
 
 **How many chained instructions can a model hold in its head?**
 
-![version](https://img.shields.io/badge/benchmark-v1.0.0-blue) ![questions](https://img.shields.io/badge/questions-360-orange) ![Python](https://img.shields.io/badge/Python-3.10+-blue) ![license](https://img.shields.io/badge/license-MIT%20%7C%20CC%20BY%204.0-lightgrey)
+![version](https://img.shields.io/badge/benchmark-v1.1.0-blue) ![questions](https://img.shields.io/badge/questions-360-orange) ![Python](https://img.shields.io/badge/Python-3.10+-blue) ![license](https://img.shields.io/badge/license-MIT%20%7C%20CC%20BY%204.0-lightgrey)
 
 A model gets a list of numbers and a numbered chain of instructions that
 change it — some use only the numbers in front of them, some read what

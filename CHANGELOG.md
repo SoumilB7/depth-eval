@@ -4,6 +4,30 @@ The benchmark version pins the question set: `benchmark/v1/questions.jsonl`
 changes only with a new version, and `depth-eval verify` proves a copy
 matches the code that made it.
 
+## 1.1.0 — wording audit
+
+Same 360 questions — the same starting lists, instructions and true
+answers; only the rules text at the top of every prompt changed. A
+36-question pilot (Claude Haiku 4.5, one per cell, on 1.0.0) and a scan of
+all 360 questions against every rule the engine applies found five places
+where the rules left a reading open. They now say:
+
+- where a held line is logged: its one entry comes where it runs, never at
+  its own number (334 questions have held lines; one pilot answer was
+  right in every stage and failed on this alone);
+- that "x minus the number" is its own inverse (an undo, inverse or flip
+  of such a line: 295 lines across the set);
+- that repeating or inverting a line runs the whole line — its selection,
+  its "If" (checked again), its times over and its one-at-a-time order
+  (and does nothing if that line is cancelled);
+- that a line which did nothing applied to no positions, and an undo
+  applied to the positions it put back;
+- that a line run k times over is undone run by run, last run first, and
+  that undoing an undo makes the change again.
+
+Every clause is checked against the engine by a test. Results on 1.0.0
+are not comparable with 1.1.0.
+
 ## 1.0.0 — first release
 
 **The question set.** 360 questions, the full surface: 3 configs (shallow /

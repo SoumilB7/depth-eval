@@ -151,6 +151,34 @@ def test_repeat_and_undo_of_a_change_say_what_they_do():
     assert execute(chain, [0])[0] == [12]              # the doubling happened twice
 
 
+def test_the_rules_say_what_the_engine_does():
+    """Each clause added by the 1.1 wording audit, checked on the engine."""
+    from depth_eval import META_VERBS as V, NUMBER_OPS as O, At, Instruction, MetaInstruction as MI, execute
+    from depth_eval.application import Application
+    from depth_eval.ops.scope import even_at, span, touched, untouched
+    def run(chain, start):
+        return execute(chain, start)[0]
+    # "x minus the number" is its own inverse: flipped, it does the same
+    assert run([MI(V["flip"], 2), Instruction(O["-n + x"], 10)], [3]) == [7]
+    # a repeat runs the whole line: its selection, times over, and If checked now
+    twice_at_0 = Application(extent=span(0, 0), times=2, gate=even_at(1))
+    assert run([Instruction(O["n + x"], 1, application=twice_at_0), MI(V["mirror"], 1)], [0, 0]) == [4, 0]
+    assert run([Instruction(O["n + x"], 1, application=twice_at_0), Instruction(O["n + x"], 1),
+                MI(V["mirror"], 1)], [0, 0]) == [3, 1]
+    # ... and nothing if the line is cancelled
+    assert run([MI(V["cancel"], 2), Instruction(O["n + x"], 1), MI(V["mirror"], 2), MI(V["negate"], 2)], [0]) == [0]
+    # k times over is undone run by run, each run with its own value (1, then 2)
+    assert run([Instruction(O["n + x"], At(0), application=Application(times=2)), MI(V["unwind"], 1)],
+               [1, 5]) == [1, 5]
+    # undoing an undo makes the change again
+    assert run([Instruction(O["n + x"], 3), MI(V["unwind"], 1), MI(V["unwind"], 2)], [0]) == [3]
+    # positions applied to: none for a line that did nothing; an undo's are those it put back
+    assert run([MI(V["cancel"], 2), Instruction(O["n + x"], 1),
+                Instruction(O["n + x"], 10, application=Application(extent=untouched(2)))], [0, 0]) == [10, 10]
+    assert run([Instruction(O["n + x"], 1, application=Application(extent=span(0, 0))), MI(V["unwind"], 1),
+                Instruction(O["n + x"], 10, application=Application(extent=touched(2)))], [0, 0]) == [10, 0]
+
+
 def test_arena_audit_accepts_only_the_exact_setup():
     from depth_eval.bench.arena import CALCULATORS, audit
     init = {"type": "system", "subtype": "init", "model": "m", "tools": sorted(CALCULATORS),

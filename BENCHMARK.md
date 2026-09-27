@@ -31,10 +31,11 @@ followed by its exact formula in brackets.
  "final": [ ... ]}
 ```
 
-one entry per instruction in the order they run (a hold moves an
-instruction later), each with the whole list after it; a line that changes
-nothing still gets an entry. The first JSON object in the reply is read;
-code fences and surrounding text are tolerated.
+one entry per instruction in the order they run (a held line's one entry
+comes where it runs, never at its own number), each with the whole list
+after it; a line that changes nothing still gets an entry. The first JSON
+object in the reply holding the stage log is read; code fences and
+surrounding text are tolerated.
 
 **Allowed help** — reasoning, plus two calculators (integer expressions,
 one value or a whole list) and nothing else: no code execution, no files,
