@@ -4,8 +4,8 @@
   "literal_low": 1,
   "literal_high": 10,
   "category_weights": {
-    "direct": 55,
-    "relative": 45
+    "direct": 35,
+    "relative": 65
   },
   "direct_weights": {
     "literal": 20,
@@ -16,19 +16,19 @@
     "move": 8
   },
   "relative_weights": {
-    "effect": 35,
-    "definition": 15,
-    "execution": 10,
+    "effect": 25,
+    "definition": 20,
+    "execution": 15,
     "alter": 25,
     "erase": 15
   },
   "scope_weights": {
-    "all": 70,
-    "stride": 10,
+    "all": 62,
+    "stride": 8,
     "span": 5,
-    "value": 8,
-    "touched": 5,
-    "same": 2
+    "value": 7,
+    "touched": 12,
+    "same": 6
   },
   "times_weights": {
     "1": 80,
@@ -36,9 +36,9 @@
     "3": 5
   },
   "gate_weights": {
-    "always": 80,
-    "value": 10,
-    "effect": 10
+    "always": 76,
+    "value": 6,
+    "effect": 18
   },
   "order_weights": {
     "snapshot": 90,
