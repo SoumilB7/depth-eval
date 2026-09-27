@@ -16,8 +16,9 @@ Knobs (env, layered by .env — see .env.example):
     ANTHROPIC_API_KEY   required
     SOLVER_MODEL        default claude-opus-5
     SOLVER_EFFORT       low | medium | high | xhigh | max, default high
-    SOLVER_MAX_TOKENS   default 64000 per turn (streamed, so a large cap
-                        costs nothing when unused)
+    SOLVER_MAX_TOKENS   default: the model's full output cap (streamed, so a
+                        large cap costs nothing when unused) — an answer cut
+                        short by OUR cap would not be the model's failure
 
 The model under test stays the model under test: no server-side fallbacks,
 never re-asked. A refusal, a max_tokens cut-off, or running past MAX_TURNS
@@ -47,15 +48,22 @@ class Solver:
         self.client = client or anthropic.Anthropic()
         self.model = model or os.environ.get("SOLVER_MODEL", "claude-opus-5")
         self.effort = os.environ.get("SOLVER_EFFORT", "high")
-        self.max_tokens = int(os.environ.get("SOLVER_MAX_TOKENS", "64000"))
+        # Claude Haiku 4.5 predates adaptive thinking and effort: it takes a
+        # fixed thinking budget below max_tokens and rejects `effort`; the
+        # newer models (Opus 5 / 5.5, Sonnet 5, Fable 5.1) think adaptively
+        self.legacy_thinking = self.model.startswith("claude-haiku-4-5")
+        cap = 64000 if self.legacy_thinking else 128000
+        self.max_tokens = int(os.environ.get("SOLVER_MAX_TOKENS", cap))
 
     def request(self, messages: list) -> dict:
         """The complete request: the conversation and the two calculators."""
+        thinking = ({"thinking": {"type": "enabled", "budget_tokens": self.max_tokens - 16000}}
+                    if self.legacy_thinking else
+                    {"thinking": {"type": "adaptive"}, "output_config": {"effort": self.effort}})
         return {
             "model": self.model,
             "max_tokens": self.max_tokens,
-            "thinking": {"type": "adaptive"},
-            "output_config": {"effort": self.effort},
+            **thinking,
             # client tools on a streamed request stream their input eagerly;
             # the calculator validates every input itself
             "tools": [tool.definition() | {"eager_input_streaming": True}

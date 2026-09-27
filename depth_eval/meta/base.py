@@ -47,9 +47,35 @@ class MetaInstruction:
     operand: object | None = None
     hold_until_after: int | None = None
 
-    def render(self, number: int, companion: list[int] | None = None) -> str:
+    def changes_an_instruction(self, chain: list, j: int) -> bool:
+        """Does line j, followed through repeat/invert lines, end at a
+        "from now on" line — a line that changes another instruction, not
+        the list?"""
+        seen = set()
+        while isinstance(chain[j - 1], MetaInstruction) and chain[j - 1].verb.klass == "read":
+            if j in seen:
+                return False
+            seen.add(j)
+            j = chain[j - 1].target
+        line = chain[j - 1]
+        return isinstance(line, MetaInstruction) and line.verb.klass == "edit"
+
+    def render(self, number: int, companion: list[int] | None = None,
+               chain: list | None = None) -> str:
+        """chain: the whole question, so a repeat or an undo aimed at a line
+        that changes an instruction (not the list) says exactly what that
+        means — without naming where the chain ends (following it is the
+        task). Ruled 2026-09-29: the text says it."""
         x = operand_phrase(self.operand) if self.operand is not None else ""
         body = self.verb.phrase.format(j=self.target, x=x)
+        if chain is not None and self.verb.name in ("mirror", "unwind") \
+                and self.changes_an_instruction(chain, self.target):
+            body = (f"Do again what instruction {self.target} does, as it is currently defined: "
+                    "it changes another instruction rather than the list, so make that change "
+                    "once more (if it is cancelled, do nothing)"
+                    if self.verb.name == "mirror" else
+                    f"Undo what instruction {self.target} actually did: it changed no numbers "
+                    "(it changes another instruction rather than the list), so this does nothing")
         if (
             companion is not None
             and self.operand is not None

@@ -127,3 +127,23 @@ def test_an_api_failure_propagates_and_is_never_an_answer():
     solver, _ = scripted(RuntimeError("overloaded"))
     with pytest.raises(RuntimeError):
         solver.solve("PROMPT")
+
+
+def test_solver_request_fits_each_model():
+    new = Solver(model="claude-opus-5", client=object()).request([])
+    assert new["thinking"] == {"type": "adaptive"} and new["output_config"] == {"effort": "high"}
+    assert new["max_tokens"] == 128000
+    old = Solver(model="claude-haiku-4-5", client=object()).request([])
+    assert old["thinking"]["type"] == "enabled" and "output_config" not in old
+    assert 1024 <= old["thinking"]["budget_tokens"] < old["max_tokens"] == 64000
+
+
+def test_repeat_and_undo_of_a_change_say_what_they_do():
+    from depth_eval import META_VERBS as V, NUMBER_OPS as O, Instruction, MetaInstruction as MI, execute
+    from depth_eval.lines import render_question
+    chain = [MI(V["cancel"], 6), MI(V["unwind"], 1), MI(V["amplify"], 5), MI(V["mirror"], 3),
+             Instruction(O["n + x"], 3), Instruction(O["n + x"], 100)]
+    text = render_question(chain)
+    assert "it changed no numbers" in text and "so this does nothing" in text
+    assert "make that change once more" in text
+    assert execute(chain, [0])[0] == [12]              # the doubling happened twice

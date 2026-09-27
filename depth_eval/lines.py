@@ -14,6 +14,7 @@ shows its own private list inline, so the question text is self-contained.
 from dataclasses import dataclass
 
 from .application import ALWAYS, WHOLE, Application
+from .meta.base import MetaInstruction
 from .ops.base import NumberOp
 from .ops.moves import Move
 from .ops.operands import uses_companion
@@ -97,7 +98,8 @@ def render_question(instructions: list, companions: list[list[int]] | None = Non
     lines = []
     for i, ins in enumerate(instructions, start=1):
         companion = companions[i - 1] if companions is not None else None
-        lines.append(ins.render(i, companion))
+        lines.append(ins.render(i, companion, instructions) if isinstance(ins, MetaInstruction)
+                     else ins.render(i, companion))
     return "\n".join(lines)
 
 
