@@ -41,7 +41,7 @@ def graded(q, log):
 
 def test_suite_is_the_full_surface_with_its_own_seeds():
     s = B.suite()
-    assert len(s) == 3 * 4 * 3 * 10 == len({x["id"] for x in s})
+    assert len(s) == len(B.STEPS) * B.SAMPLES == len({x["id"] for x in s})
     assert len({(x["list_seed"], x["instruction_seed"]) for x in s}) == len(s)
 
 
@@ -49,8 +49,19 @@ def test_a_question_is_deterministic_and_keeps_measures_out_of_the_prompt(q):
     assert B.question(IDENTITY) == q
     m = q["measures"]
     assert m["chain_depth"] == max(m["chain_depths"]) and len(m["chain_depths"]) == 5
+    assert m["open_at_once"] >= 0
     assert "chain" not in q["prompt"] and "measures" not in q["prompt"]
     assert len(q["truth"]["stages"]) == 5
+
+
+def test_open_at_once_counts_results_still_needed():
+    from depth_eval import NUMBER_OPS as O
+    from depth_eval import Changed, Instruction
+    from depth_eval.nomenclature import open_at_once
+    # lines 2 and 3 both need line 1's count: after line 1 runs, 2 results are pending, then 1
+    assert open_at_once([Instruction(O["n + x"], 1), Instruction(O["n + x"], Changed(1)),
+                         Instruction(O["n + x"], Changed(1))]) == 2
+    assert open_at_once([Instruction(O["n + x"], 1)]) == 0
 
 
 def test_grading_exact_and_reply_text(q):
@@ -126,7 +137,7 @@ def test_the_released_set_is_built_from_this_code():
 
     from depth_eval import __version__
     from depth_eval.lines import CONVENTIONS
-    released = Path(__file__).resolve().parents[2] / "benchmark" / "v1"
+    released = Path(__file__).resolve().parents[2] / "benchmark" / "v2"
     assert B.identity(released)["version"] == __version__
     assert all(x["prompt"].startswith(CONVENTIONS) for x in B.load(released / "questions.jsonl"))
 
@@ -243,6 +254,22 @@ def test_the_rules_say_what_the_engine_does():
                 Instruction(O["n + x"], 10, application=Application(extent=touched(1)))], [2, 5, 2]) == [12, 5, 12]
     # the operand of "1 minus the number" is the 1: doubled, 2 minus the number (1.2)
     assert run([MI(V["amplify"], 2), Instruction(O["-n + x"], 1)], [5]) == [-3]
+    # a line released by a released line runs right after it, before the next co-waiter (2.0)
+    from depth_eval.dag import schedule
+    held = [Instruction(O["n + x"], 1, hold_until_after=4), Instruction(O["n + x"], 1, hold_until_after=4),
+            Instruction(O["n + x"], 1, hold_until_after=1), Instruction(O["n + x"], 1)]
+    assert schedule(held) == [4, 1, 3, 2]
+    # a cancelled line still takes its turn and releases what waits on it (2.0)
+    chain = [MI(V["cancel"], 3), Instruction(O["n + x"], 1, hold_until_after=3), Instruction(O["n + x"], 10)]
+    assert schedule(chain) == [1, 3, 2] and run(chain, [0]) == [1]
+    # "uses x" replaces a doubled operand; doubling doubles whatever is in force (2.0)
+    assert run([MI(V["amplify"], 3), MI(V["rewrite"], 3, operand=5), Instruction(O["n + x"], 3)], [0]) == [5]
+    assert run([MI(V["rewrite"], 3, operand=5), MI(V["amplify"], 3), Instruction(O["n + x"], 3)], [0]) == [10]
+    # "the same selection as j" whether or not j's own If held (2.0)
+    from depth_eval.ops.scope import changed_more, same_as
+    assert run([Instruction(O["n + x"], 0, application=Application(extent=span(0, 0))),
+                Instruction(O["n + x"], 5, application=Application(extent=span(1, 1), gate=changed_more(1, 3))),
+                Instruction(O["n + x"], 100, application=Application(extent=same_as(2)))], [0, 0, 0]) == [0, 100, 0]
     # an operand given by a "from now on" line is read when the changed line runs (1.2)
     assert run([MI(V["rewrite"], 3, operand=At(0)), Instruction(O["n + x"], 100), Instruction(O["n + x"], 5)],
                [1]) == [202]

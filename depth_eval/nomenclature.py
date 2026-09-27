@@ -246,6 +246,18 @@ def chain_depths(instructions) -> list[int]:
     return [1 + hops[i] for i in range(1, len(instructions) + 1)]
 
 
+def open_at_once(instructions) -> int:
+    """PEAK OVERLAP: the most lines whose result or definition a later-running
+    line still needs, at any one moment of the run — what has to be held in
+    mind at once. A measurement for reports, never part of the prompt."""
+    # dag imports lines/meta; imported here to keep this module light
+    from .dag import schedule
+
+    when = {line: t for t, line in enumerate(schedule(instructions))}
+    spans = [(when[j], when[i]) for i, js in references(instructions).items() for j in js if when[j] < when[i]]
+    return max((sum(a <= t < b for a, b in spans) for t in range(len(when))), default=0)
+
+
 def reference_shape(instructions) -> tuple[int, float]:
     """(R, d): R = the longest reference chain, in hops (0 = no coupling);
     d = the share of references that reach FAR. Written `R3 d0.25`."""

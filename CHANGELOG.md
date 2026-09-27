@@ -4,6 +4,43 @@ The benchmark version pins the question set: `benchmark/v1/questions.jsonl`
 changes only with a new version, and `depth-eval verify` proves a copy
 matches the code that made it.
 
+## 2.0.0 — one axis: depth
+
+A new question set, built for reading a model's accuracy as a curve
+against depth. `benchmark/v2/`: the deep config, lists of 10 numbers, and
+10 questions at each of 10 / 20 / 40 / 60 / 80 / 100 / 120 / 160
+instructions (80 questions), each on its own fresh seed pair (2000000 + i,
+3000000 + i; a pair the generator cannot use moves on by 1000 and the
+record holds the seeds used). The 360-question v1 set (1.3.0) stays in
+git history.
+
+Why: a depth ladder on five models (fresh questions, 3 per rung) showed
+the strongest models stay exact to about 50–100 deep instructions, and
+that config and list width matter far less than depth; the v1 grid spread
+its questions thin across axes that do not separate strong models.
+
+Every question gains a measure never sent to the model: `open_at_once`,
+the most earlier results a later line still needs at any moment — how
+much has to be held in mind at once — beside chain depth, relative and
+held lines.
+
+The rules text, from an audit of all 23 ladder misses in which every
+answer key was recomputed independently (no key errors; 2 misses from
+one ambiguous sentence):
+
+- a line released by a released line runs right after the line that
+  released it, before the next line still waiting — with an example (the
+  old "anything they in turn release runs right after them" read two
+  ways; two models applied the other reading perfectly);
+- a cancelled line still takes its turn, doing nothing, and releases the
+  lines held on it;
+- a later "uses x as its operand" replaces the operand in force, and
+  "uses double its operand" doubles the operand in force;
+- "the same selection as instruction j" applies whether or not j's own
+  "If" held.
+
+Each clause is pinned to the engine by a test.
+
 ## 1.3.0 — the opening sentence
 
 Same 360 questions and true answers. The prompt opened "Apply the

@@ -2,7 +2,7 @@
 
 **How many chained instructions can a model hold in its head?**
 
-![version](https://img.shields.io/badge/benchmark-v1.3.0-blue) ![questions](https://img.shields.io/badge/questions-360-orange) ![Python](https://img.shields.io/badge/Python-3.10+-blue) ![license](https://img.shields.io/badge/license-MIT%20%7C%20CC%20BY%204.0-lightgrey)
+![version](https://img.shields.io/badge/benchmark-v2.0.0-blue) ![questions](https://img.shields.io/badge/questions-80-orange) ![Python](https://img.shields.io/badge/Python-3.10+-blue) ![license](https://img.shields.io/badge/license-MIT%20%7C%20CC%20BY%204.0-lightgrey)
 
 A model gets a list of numbers and a numbered chain of instructions that
 change it — some use only the numbers in front of them, some read what
@@ -15,15 +15,18 @@ kind of instruction.
 The formal definition — task, question set, scoring, reporting, limits —
 is in **[BENCHMARK.md](BENCHMARK.md)**.
 
-## The v1 question set
+## The question set (v2)
 
-360 questions in [`benchmark/v1/questions.jsonl`](benchmark/v1/): 3 configs ×
-10 / 20 / 40 / 80 instructions × lists of 10 / 20 / 40 numbers × 10 samples.
+80 questions in [`benchmark/v2/questions.jsonl`](benchmark/v2/), one axis —
+depth: the most interlinked setting ("deep"), lists of 10 numbers, and
+**10 questions at each of 10 / 20 / 40 / 60 / 80 / 100 / 120 / 160
+instructions**, so a model's accuracy reads as a curve against depth.
 Each record holds the exact prompt, the true list after every instruction,
-and analysis-only measures (never sent to a model) — among them the **chain
-depth**, the number of instructions in the longest chain of references
-(up to 11 in v1). [`manifest.json`](benchmark/v1/manifest.json) pins it with
-a sha256.
+and analysis-only measures that are never sent to a model: the **chain
+depth** (instructions in the longest chain of references), how many lines
+name another line, how many are held, and the most results a model must
+hold open at once. [`manifest.json`](benchmark/v2/manifest.json) pins it
+with a sha256.
 
 ## Use it
 
@@ -43,15 +46,15 @@ prompt and two calculators, nothing else):
 
 ```bash
 cp .env.example .env                       # add ANTHROPIC_API_KEY
-depth-eval run --model claude-opus-5 --out runs/opus5-v1.3.0
-depth-eval score runs/opus5-v1.3.0/answers
+depth-eval run --model claude-opus-5 --out runs/opus5-v2.0.0
+depth-eval score runs/opus5-v2.0.0/answers
 ```
 
 **Or run it through Claude Code** (no API key — the CLI's own login):
 
 ```bash
 pip install '.[arena]'
-depth-eval arena --model claude-haiku-4-5 --out runs/haiku-4.5-arena-v1.3.0
+depth-eval arena --model claude-haiku-4-5 --out runs/haiku-4.5-arena-v2.0.0
 ```
 
 The arena gives each question its own headless `claude -p` session in an
@@ -66,7 +69,7 @@ in `transcripts/`. `score` reports the exact rate, depth reached, and both
 by config, instructions, list length and chain depth, plus a stage-by-stage
 report for every answer.
 
-**Reproduce the set** — `depth-eval verify` regenerates all 360 questions
+**Reproduce the set** — `depth-eval verify` regenerates all 80 questions
 from the code and requires identical bytes; `depth-eval build` writes them.
 
 ## What an instruction can be
@@ -88,23 +91,20 @@ reverse                                           → [7, 2, 9, 4]
 
 ## Results
 
-Pilots on v1 — one question from each of the 36 cells, through the arena
-(earlier rules-text versions; same questions and answers as 1.3.0):
-
-| model | version | exact | stages right before the first error |
-|---|---|---|---|
-| Claude Sonnet 5 | 1.1.0 | 33 / 36 | 97% |
-| Claude Haiku 4.5 | 1.1.0 | 15 / 36 | 59% |
-| Claude Haiku 4.5 | 1.0.0 | 12 / 36 | 54% |
+v2 results are next. Before it, a depth ladder (3 fresh questions per
+rung, lists of 10; highest rung with all three exact): Claude Opus 5 deep
+100 · Opus 5.5 deep 60 · Fable 5.1 deep 50 · Sonnet 5.5 deep 20 · Haiku
+4.5 none. Every miss was traced (answer keys recomputed independently: no
+key errors; two misses came from one ambiguous sentence, fixed in 2.0.0).
+Pilots on the v1 set: [CHANGELOG.md](CHANGELOG.md).
 
 Every run folder carries `run.json` (the set's version and sha256, the
 model, the runner), and `score` refuses answers made on another version.
-Full 1.3.0 results are next.
 
 ## Repository
 
 ```
-benchmark/v1/        the question set + manifest
+benchmark/v2/        the question set + manifest
 depth_eval/          the engine: operations, instructions, validation, generation
 depth_eval/bench/    the benchmark: suite, grading, reference solver, arena, CLI
 tests/               python -m pytest

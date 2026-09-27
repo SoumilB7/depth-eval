@@ -1,7 +1,7 @@
 """depth-eval — build the question set, run a model on it, score the answers.
 
-    depth-eval build  [--out benchmark/v1]                write questions.jsonl + manifest.json
-    depth-eval verify [--out benchmark/v1]                rebuild; the bytes must match
+    depth-eval build  [--out benchmark/v2]                write questions.jsonl + manifest.json
+    depth-eval verify [--out benchmark/v2]                rebuild; the bytes must match
     depth-eval run    --model ID --out runs/NAME          the API solver on every question
     depth-eval arena  --model ID --out runs/NAME          the same through headless Claude Code
     depth-eval score  ANSWERS_DIR [--out results.json]    grade a directory of answers
@@ -29,7 +29,7 @@ from pathlib import Path
 from .build import build, identity, load, verify
 from .grade import grade
 
-DEFAULT_SET = Path("benchmark/v1")
+DEFAULT_SET = Path("benchmark/v2")
 
 
 def _progress(n, total, qid):
