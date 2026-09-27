@@ -38,6 +38,8 @@ def _load(text: str | bytes):
         if isinstance(obj, dict) and "stages" in obj:
             return obj
         first = obj if first is None else first
+    if '"stages"' in text:
+        raise MalformedAnswer("the stage log is not valid JSON")
     if first is not None:
         return first
     raise MalformedAnswer("no JSON object found in the answer")

@@ -48,6 +48,8 @@ def test_grading_exact_and_reply_text(q):
     assert graded(q, "Here you go:\n```json\n" + json.dumps(truth_log(q)) + "\n```").exact
     chatter = "Tracking Touched[2] = {3, 7} and {} as I go.\n```json\n"   # braces before the log
     assert graded(q, chatter + json.dumps(truth_log(q)) + "\n```").exact
+    broken = json.dumps(truth_log(q)).replace('"state": [', '"state": [[', 1)
+    assert graded(q, broken).detail == "the stage log is not valid JSON"
 
 
 def test_grading_names_the_first_divergence_and_reports_every_stage(q):
@@ -152,7 +154,7 @@ def test_repeat_and_undo_of_a_change_say_what_they_do():
 
 
 def test_the_rules_say_what_the_engine_does():
-    """Each clause added by the 1.1 wording audit, checked on the engine."""
+    """Each clause added by the 1.1 and 1.2 wording audits, checked on the engine."""
     from depth_eval import META_VERBS as V, NUMBER_OPS as O, At, Instruction, MetaInstruction as MI, execute
     from depth_eval.application import Application
     from depth_eval.ops.scope import even_at, span, touched, untouched
@@ -177,6 +179,11 @@ def test_the_rules_say_what_the_engine_does():
                 Instruction(O["n + x"], 10, application=Application(extent=untouched(2)))], [0, 0]) == [10, 10]
     assert run([Instruction(O["n + x"], 1, application=Application(extent=span(0, 0))), MI(V["unwind"], 1),
                 Instruction(O["n + x"], 10, application=Application(extent=touched(2)))], [0, 0]) == [10, 0]
+    # ... and a line that ran applied to its selection even where nothing changed (1.2)
+    assert run([Instruction(O["n + x"], 0, application=Application(extent=span(0, 0))),
+                Instruction(O["n + x"], 10, application=Application(extent=touched(1)))], [0, 0]) == [10, 0]
+    # the operand of "1 minus the number" is the 1: doubled, 2 minus the number (1.2)
+    assert run([MI(V["amplify"], 2), Instruction(O["-n + x"], 1)], [5]) == [-3]
 
 
 def test_arena_audit_accepts_only_the_exact_setup():

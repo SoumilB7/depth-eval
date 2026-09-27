@@ -4,6 +4,20 @@ The benchmark version pins the question set: `benchmark/v1/questions.jsonl`
 changes only with a new version, and `depth-eval verify` proves a copy
 matches the code that made it.
 
+## 1.2.0 — second wording audit
+
+Same 360 questions and true answers; the rules text changed in two
+places, found by auditing every miss of the 1.1.0 pilots (Claude Haiku 4.5
+15/36, Claude Sonnet 5 33/36):
+
+- "positions instruction j applied to": a line that ran applied to its
+  whole selection even where a value came out the same — only a skipped
+  line applied to none. 1.1.0's "none for a line that did nothing" was
+  read as covering a line that ran and changed nothing (one Haiku miss);
+- "operand" is defined — the value a line combines with the number (the 1
+  in "1 minus the number"), which is what "uses double its operand" and
+  "uses x as its operand" change (one Haiku miss doubled the number).
+
 ## 1.1.0 — wording audit
 
 Same 360 questions — the same starting lists, instructions and true
