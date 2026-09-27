@@ -10,17 +10,22 @@ A run spec is the exact string testruns/ already uses for filenames:
     {config}-s{steps}-L{length}-ls{list_seed}-is{instruction_seed}
     e.g. default-s10-L10-ls42-is37
 
-The observation is raw parts for now (instruction text — self-contained,
-each line shows its private list B inline — start list, and the per-line
-lists). Prompt assembly — the conventions preamble — is a later, deliberate
-layer; agents decide nothing about truth,
-they only see the observation and hand back a list of integers.
+The observation carries the complete prompt a model is sent —
+`render_prompt`, verbatim, because the wording is part of the question's
+meaning and lives in the engine — plus the raw parts for agents that need
+them. The answer is the JSON stage log the prompt asks for, and grading is
+STAGE BY STAGE (decision 13, ruling 1: a line whose work is later
+overwritten still counts). The primary score is the first divergence
+stage — the same comparison testruns/examples/compare.py applied to every
+trial so far — with the kind of divergence named.
 """
 
 import re
 from dataclasses import dataclass
 
-from depth_eval import GeneratorConfig, Question, generate, load_config
+from depth_eval import GeneratorConfig, Question, Step, generate, load_config, render_prompt
+
+from .answer import MalformedAnswer, parse_stage_log
 
 SPEC_PATTERN = re.compile(
     r"^(?P<config>[a-z0-9_]+)"
@@ -64,13 +69,58 @@ class RunSpec:
 
 @dataclass(frozen=True)
 class SubmissionResult:
-    """One graded answer. `first_wrong` is the first diverging position
-    (a length mismatch diverges at the shorter list's end), None when exact."""
+    """One graded stage log.
 
-    answer: list[int]
-    expected: list[int]
+    first_divergence: 1-based index of the first stage the model got wrong,
+    None when exact. divergence_kind names it:
+      order     — it ran the wrong instruction at that stage
+      state     — right instruction, wrong list
+      count     — every stage matched but the log stopped early or ran on
+                  (index = the first missing or surplus stage)
+      final     — every stage matched, the final list does not
+                  (index = stages_expected + 1)
+      malformed — not a stage log at all (index 0: before any stage)
+    stages_matched: stages correct before that point — the depth reached.
+    stage_report: every true stage side by side with the model's — truth_ran,
+      truth, model_ran, model (None where the log has no such stage), ok,
+      wrong_positions — so a miss can be read stage by stage (and a later
+      "healed" error is visible); empty for a malformed answer.
+    """
+
+    answer: object
+    expected: list[dict]
+    stages_expected: int
     exact: bool
-    first_wrong: int | None
+    first_divergence: int | None
+    divergence_kind: str | None
+    stages_matched: int
+    detail: str
+    stage_report: list[dict]
+
+
+def _stage_report(truth: list[dict], stages: list[dict]) -> list[dict]:
+    report = []
+    for i, t in enumerate(truth):
+        a = stages[i] if i < len(stages) else {}
+        model = a.get("state")
+        wrong = ([p for p, (x, y) in enumerate(zip(t["state"], model)) if x != y]
+                 + list(range(len(model), len(t["state"])))) if model is not None else None
+        report.append({"stage": i + 1, "truth_ran": t["ran"], "truth": t["state"],
+                       "model_ran": a.get("ran"), "model": model,
+                       "ok": a.get("ran") == t["ran"] and model == t["state"],
+                       "wrong_positions": wrong})
+    return report
+
+
+def _truth_stages(question: Question) -> list[dict]:
+    """The expected stage log: one entry per trace event, in execution
+    order; an edit leaves the list as it was (the prompt says so)."""
+    stages, state = [], list(question.start)
+    for event in question.trace:
+        if isinstance(event, Step):
+            state = list(event.seq)
+        stages.append({"ran": event.instruction, "state": state})
+    return stages
 
 
 class QuestionEnvironment:
@@ -85,28 +135,55 @@ class QuestionEnvironment:
             length=spec.length,
             config=config,
         )
+        self._truth = _truth_stages(self.question)
 
     @property
     def observation(self) -> dict:
         """Everything an agent may see. Never includes the answer or trace."""
+        q = self.question
         return {
             "spec": str(self.spec),
-            "text": self.question.text,
-            "start": list(self.question.start),
-            "companions": [list(row) for row in self.question.companions],
+            "prompt": render_prompt(q.start, q.instructions, q.companions),
+            "text": q.text,
+            "start": list(q.start),
+            "steps": len(q.instructions),
         }
 
-    def submit(self, answer: list[int]) -> SubmissionResult:
-        expected = list(self.question.final)
-        answer = list(answer)
-        exact = answer == expected
-        first_wrong = None
-        if not exact:
-            first_wrong = next(
-                (i for i, (a, e) in enumerate(zip(answer, expected)) if a != e),
-                min(len(answer), len(expected)),
-            )
-        return SubmissionResult(answer, expected, exact, first_wrong)
+    def submit(self, answer) -> SubmissionResult:
+        """Grade a stage log (object or reply text) against the truth."""
+        truth, n = self._truth, len(self._truth)
+
+        report: list[dict] = []
+
+        def result(exact, at, kind, matched, detail):
+            return SubmissionResult(answer, truth, n, exact, at, kind, matched, detail, report)
+
+        try:
+            log = parse_stage_log(answer)
+        except MalformedAnswer as e:
+            return result(False, 0, "malformed", 0, str(e))
+
+        stages = log["stages"]
+        report = _stage_report(truth, stages)
+        for i, (t, a) in enumerate(zip(truth, stages), start=1):
+            if t["ran"] != a["ran"]:
+                return result(False, i, "order", i - 1,
+                              f"stage {i}: ran {a['ran']} but {t['ran']} should run next")
+            if t["state"] != a["state"]:
+                diff = [(p, x, y) for p, (x, y) in enumerate(zip(t["state"], a["state"])) if x != y]
+                if len(t["state"]) != len(a["state"]):
+                    diff.append(("length", len(t["state"]), len(a["state"])))
+                return result(False, i, "state", i - 1,
+                              f"stage {i} (instruction {t['ran']}): wrong values "
+                              f"(pos, truth, got) {diff}")
+        if len(stages) != n:
+            at = min(len(stages), n) + 1
+            return result(False, at, "count", min(len(stages), n),
+                          f"stage count {len(stages)} vs {n}")
+        if log["final"] != self.question.final:
+            return result(False, n + 1, "final", n,
+                          f"final differs: {log['final']} vs {self.question.final}")
+        return result(True, None, None, n, "exact")
 
 
 def make(spec: str) -> QuestionEnvironment:

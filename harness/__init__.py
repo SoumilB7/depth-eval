@@ -7,19 +7,24 @@ agent names by the Swarm and replay through Playback.
 """
 
 from .agent import Agent, Playback
+from .answer import MalformedAnswer, parse_stage_log
 from .env import QuestionEnvironment, RunSpec, SubmissionResult, make
 from .recorder import Recorder
 from .scorecard import RunScore, Scorecard
 from .swarm import Swarm
-from .templates import Random
+from .templates import Claude, Random, Reply
 
 AVAILABLE_AGENTS: dict[str, type[Agent]] = {
     "random": Random,
+    "reply": Reply,
+    "claude": Claude,
 }
 
 __all__ = [
     "Agent",
     "Playback",
+    "MalformedAnswer",
+    "parse_stage_log",
     "AVAILABLE_AGENTS",
     "QuestionEnvironment",
     "RunSpec",
@@ -30,4 +35,6 @@ __all__ = [
     "Scorecard",
     "Swarm",
     "Random",
+    "Reply",
+    "Claude",
 ]

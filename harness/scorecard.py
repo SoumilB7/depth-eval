@@ -6,8 +6,12 @@ and closing it writes one JSON report under the recordings directory:
     {recordings_dir}/{card_id}.scorecard.json
 
 Closing is SIGINT-safe by design: whatever ran before Ctrl+C still lands in
-the report (main.py wires that). Metrics beyond exact/first_wrong are a
-later layer — this file only carries results, it never computes truth.
+the report (main.py wires that). EVERY launched run is a row — its
+outcome (graded / error / unfinished, see agent.py) and, when graded, the
+stage verdict (first divergence stage + kind, stages matched of expected).
+Only graded runs are scored: `solved` counts over `graded`, and runs that
+failed on our side are listed, never silently dropped. This file only
+carries results, it never computes truth.
 """
 
 import json
@@ -25,10 +29,14 @@ class RunScore:
 
     spec: str
     agent: str
-    attempts: int
-    exact: bool
-    first_wrong: int | None
+    outcome: str                  # graded | error | unfinished
+    exact: bool | None            # None unless graded, as below
+    first_divergence: int | None
+    divergence_kind: str | None
+    stages_matched: int | None
+    stages_expected: int | None
     seconds: float
+    error: str | None = None
 
 
 @dataclass
@@ -49,8 +57,11 @@ class Scorecard:
             "tags": self.tags,
             "opened": self.opened,
             "closed": datetime.now(timezone.utc).isoformat(),
-            "played": len(self.scores),
+            "runs": len(self.scores),
+            "graded": sum(1 for s in self.scores if s.outcome == "graded"),
             "solved": sum(1 for s in self.scores if s.exact),
+            "errors": [s.spec for s in self.scores if s.outcome == "error"],
+            "unfinished": [s.spec for s in self.scores if s.outcome == "unfinished"],
             "scores": [asdict(s) for s in self.scores],
         }
 

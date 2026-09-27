@@ -1,16 +1,24 @@
-"""The agent contract — the ARC-AGI harness loop, collapsed to single-shot.
+"""The agent contract — the ARC-AGI harness loop, collapsed to one answer.
 
-Their ground rules, kept exactly:
+Their ground rules, kept:
 
-- the base class owns the loop: attempt guard, counters, timing, recording,
-  cleanup — an agent can never loop forever or forget to record;
-- a concrete agent overrides exactly TWO hooks: solve() and is_done();
-- every attempt is recorded; a recording filename is itself a valid agent
-  (Playback) that replays answers without touching any model.
+- the base class owns the run: timing, recording, the outcome, cleanup —
+  an agent can never forget to record or leave a run unaccounted for;
+- a concrete agent overrides ONE hook: solve(observation);
+- every run is recorded; a recording filename is itself a valid agent
+  (Playback) that replays the answer without touching any model — so
+  grading can change and every past reply is re-graded for free.
 
-What collapsed: their choose_action/step cycle is our solve/submit — the
-evaluated model answers a question once (or a few retries), it never plays
-turns. Tools, prompts, and providers are later layers on top of solve().
+Single-shot and blind (Soumil, 2026-09-26): an agent sees the observation
+and nothing else, answers once, and never learns how it was graded — no
+path from our answers back toward a solver. Whatever tool loop an agent
+runs to produce its answer (harness/calculator.py) stays inside solve().
+
+Every run ends in exactly one outcome:
+    graded      solve() returned an answer; the environment graded it
+    error       solve() raised — our side failed (a crash, an API error, a
+                missing reply file); not scored, listed for a re-run
+    unfinished  the sweep stopped before solve() returned (Ctrl+C)
 """
 
 import logging
@@ -27,8 +35,6 @@ logger = logging.getLogger()
 class Agent(ABC):
     """Interface for an agent that answers one question environment."""
 
-    MAX_ATTEMPTS: int = 3  # guard so a retrying agent can't loop forever
-
     def __init__(
         self,
         card_id: str,
@@ -41,9 +47,10 @@ class Agent(ABC):
         self.env = env
         self.agent_name = agent_name
         self.tags = tags or []
-        self.attempts: list[SubmissionResult] = []
+        self.result: Optional[SubmissionResult] = None
+        self.error: Optional[str] = None
         self.timer: float = 0.0
-        self._cleanup = True
+        self.finished_at: float = 0.0
         if record:
             self.recorder = Recorder(prefix=self.name)
             logger.info(f"recording {self.name} into {self.recorder.filename}")
@@ -57,87 +64,79 @@ class Agent(ABC):
         return type(self) is Playback
 
     @property
-    def result(self) -> Optional[SubmissionResult]:
-        """The graded answer this run stands on: the last attempt."""
-        return self.attempts[-1] if self.attempts else None
+    def outcome(self) -> str:
+        if self.result is not None:
+            return "graded"
+        return "error" if self.error is not None else "unfinished"
 
     @property
     def seconds(self) -> float:
-        return round(time.time() - self.timer, 2)
+        if not self.timer:
+            return 0.0
+        return round((self.finished_at or time.time()) - self.timer, 2)
+
+    def record(self, data: dict[str, Any]) -> None:
+        """Append one event to this run's recording (never during playback)."""
+        if hasattr(self, "recorder") and not self.is_playback:
+            self.recorder.record(data)
 
     def main(self) -> None:
-        """The loop. Solve until done or out of attempts, then clean up."""
+        """The run: one answer, graded — or the reason there is none."""
         self.timer = time.time()
-        if hasattr(self, "recorder") and not self.is_playback:
-            self.recorder.record({"observation": self.env.observation})
-        while not self.is_done(self.attempts) and len(self.attempts) < self.MAX_ATTEMPTS:
-            answer = self.solve(self.env.observation, self.attempts)
-            result = self.env.submit(answer)
-            self.append_attempt(result)
+        self.record({"observation": self.env.observation})
+        try:
+            answer = self.solve(self.env.observation)
+        except Exception as e:  # our side failed: recorded, never scored
+            self.error = f"{type(e).__name__}: {e}"
+            self.record({"error": self.error})
+            logger.error(f"{self.env.spec} - error: {self.error}")
+        else:
+            self.result = self.env.submit(answer)
+            self.record({
+                "answer": answer,
+                "exact": self.result.exact,
+                "first_divergence": self.result.first_divergence,
+                "divergence_kind": self.result.divergence_kind,
+                "stages_matched": self.result.stages_matched,
+                "detail": self.result.detail,
+                "stage_report": self.result.stage_report,
+            })
             logger.info(
-                f"{self.env.spec} - attempt {len(self.attempts)}: "
-                f"exact={result.exact} first_wrong={result.first_wrong}"
+                f"{self.env.spec} - exact={self.result.exact} "
+                f"first_divergence={self.result.first_divergence} "
+                f"({self.result.divergence_kind}) "
+                f"stages {self.result.stages_matched}/{self.result.stages_expected}"
             )
-        self.cleanup()
-
-    def append_attempt(self, result: SubmissionResult) -> None:
-        self.attempts.append(result)
-        if hasattr(self, "recorder") and not self.is_playback:
-            self.recorder.record(
-                {
-                    "attempt": len(self.attempts),
-                    "answer": result.answer,
-                    "exact": result.exact,
-                    "first_wrong": result.first_wrong,
-                }
-            )
-
-    def cleanup(self) -> None:
-        """Called once after the loop ends."""
-        if self._cleanup:
-            self._cleanup = False
-            logger.info(
-                f"finished {self.name}: {len(self.attempts)} attempt(s) "
-                f"in {self.seconds}s"
-            )
+        self.finished_at = time.time()
+        logger.info(f"finished {self.name}: {self.outcome} in {self.seconds}s")
 
     @abstractmethod
-    def is_done(self, attempts: list[SubmissionResult]) -> bool:
-        """Decide whether to stop before MAX_ATTEMPTS is hit."""
-        raise NotImplementedError
-
-    @abstractmethod
-    def solve(self, observation: dict, attempts: list[SubmissionResult]) -> list[int]:
-        """Produce the final list for this observation. Prior graded
-        attempts are visible so retrying agents can adapt."""
+    def solve(self, observation: dict) -> object:
+        """Produce the answer: the JSON stage log the prompt asks for, as an
+        object or as the raw reply text (the environment parses either).
+        Raise when our side cannot produce one — that run becomes `error`."""
         raise NotImplementedError
 
 
 class Playback(Agent):
-    """Replays answers from a recording — re-grading without a model.
+    """Replays the answer from a recording — re-grading without a model.
 
-    agent_name is the recording filename; recorded answers are re-submitted
-    in order against a freshly generated (deterministic) environment.
+    agent_name is the recording filename; the recorded answer is submitted
+    against a freshly generated (deterministic) environment.
     """
-
-    MAX_ATTEMPTS = 1_000_000  # a recording defines its own length
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.recorder = Recorder(
             prefix=Recorder.get_prefix(self.agent_name), filename=self.agent_name
         )
-        self.recorded_answers: list[list[int]] = [
+        self.recorded_answers: list[object] = [
             event["data"]["answer"]
             for event in self.recorder.get()
             if "answer" in event.get("data", {})
         ]
-        logger.info(
-            f"loaded {len(self.recorded_answers)} answers from {self.agent_name}"
-        )
 
-    def is_done(self, attempts: list[SubmissionResult]) -> bool:
-        return len(attempts) >= len(self.recorded_answers)
-
-    def solve(self, observation: dict, attempts: list[SubmissionResult]) -> list[int]:
-        return self.recorded_answers[len(attempts)]
+    def solve(self, observation: dict) -> object:
+        if not self.recorded_answers:
+            raise ValueError(f"{self.agent_name} holds no answer")
+        return self.recorded_answers[-1]  # the answer the run stood on

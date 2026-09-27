@@ -1,8 +1,8 @@
 """Swarm — many agents over many run specs, the ARC-AGI orchestration.
 
 Lifecycle, kept exactly as theirs: open a scorecard -> one agent per spec,
-one daemon thread each -> join all -> every run reports its score -> close
-the scorecard (writes the JSON report). main.py additionally closes the
+one daemon thread each -> join all -> every launched run gets a row ->
+close the scorecard (writes the JSON report). main.py additionally closes the
 card on SIGINT so an interrupted sweep still yields a partial report.
 """
 
@@ -66,26 +66,32 @@ class Swarm:
         return self.close_scorecard()
 
     def close_scorecard(self) -> Optional[dict]:
-        """Collect finished runs and write the report. Safe to call once —
-        from the normal path or from the SIGINT handler, whichever fires."""
+        """Write the report with a row for EVERY launched run. Safe to call
+        once — from the normal path or from the SIGINT handler, whichever
+        fires; runs still in flight are reported as unfinished."""
         card, self.scorecard = self.scorecard, None
         if card is None:
             return None
         for a in self.agents:
-            if a.result is not None:
-                card.add(
-                    RunScore(
-                        spec=str(a.env.spec),
-                        agent=a.agent_name,
-                        attempts=len(a.attempts),
-                        exact=a.result.exact,
-                        first_wrong=a.result.first_wrong,
-                        seconds=a.seconds,
-                    )
+            r = a.result
+            card.add(
+                RunScore(
+                    spec=str(a.env.spec),
+                    agent=a.agent_name,
+                    outcome=a.outcome,
+                    exact=r.exact if r else None,
+                    first_divergence=r.first_divergence if r else None,
+                    divergence_kind=r.divergence_kind if r else None,
+                    stages_matched=r.stages_matched if r else None,
+                    stages_expected=r.stages_expected if r else None,
+                    seconds=a.seconds,
+                    error=a.error,
                 )
+            )
         report = card.close()
         logger.info(
-            f"scorecard {report['card_id']}: {report['solved']}/{report['played']} "
-            f"solved -> {report['path']}"
+            f"scorecard {report['card_id']}: {report['solved']}/{report['graded']} "
+            f"solved, {len(report['errors'])} error, "
+            f"{len(report['unfinished'])} unfinished -> {report['path']}"
         )
         return report
