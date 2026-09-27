@@ -43,15 +43,15 @@ prompt and two calculators, nothing else):
 
 ```bash
 cp .env.example .env                       # add ANTHROPIC_API_KEY
-depth-eval run --model claude-opus-5 --out runs/opus5
-depth-eval score runs/opus5/answers
+depth-eval run --model claude-opus-5 --out runs/opus5-v1.2.0
+depth-eval score runs/opus5-v1.2.0/answers
 ```
 
 **Or run it through Claude Code** (no API key — the CLI's own login):
 
 ```bash
 pip install '.[arena]'
-depth-eval arena --model claude-haiku-4-5 --out runs/haiku-arena
+depth-eval arena --model claude-haiku-4-5 --out runs/haiku-4.5-arena-v1.2.0
 ```
 
 The arena gives each question its own headless `claude -p` session in an
@@ -88,9 +88,18 @@ reverse                                           → [7, 2, 9, 4]
 
 ## Results
 
-Preliminary, on earlier question sets (not v1), reasoning-only solvers:
-Claude Fable 5.1 48 / 48, Claude Haiku 4.5 18 / 36 — the task separates
-models. v1 results come from `depth-eval run` or `depth-eval arena`.
+Pilots on v1 — one question from each of the 36 cells, through the arena
+(earlier rules-text versions; same questions and answers as 1.2.0):
+
+| model | version | exact | stages right before the first error |
+|---|---|---|---|
+| Claude Sonnet 5 | 1.1.0 | 33 / 36 | 97% |
+| Claude Haiku 4.5 | 1.1.0 | 15 / 36 | 59% |
+| Claude Haiku 4.5 | 1.0.0 | 12 / 36 | 54% |
+
+Every run folder carries `run.json` (the set's version and sha256, the
+model, the runner), and `score` refuses answers made on another version.
+Full 1.2.0 results are next.
 
 ## Repository
 

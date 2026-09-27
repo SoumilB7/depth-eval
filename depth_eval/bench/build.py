@@ -140,5 +140,16 @@ def verify(out_dir: Path, progress=None) -> bool:
             and rebuilt == data)
 
 
+def identity(out_dir: Path) -> dict:
+    """Which question set a run or a score used: name, version and the sha256
+    of questions.jsonl as it is on disk. A file that no longer matches its
+    manifest is refused."""
+    manifest = json.loads((out_dir / "manifest.json").read_text())
+    digest = hashlib.sha256((out_dir / "questions.jsonl").read_bytes()).hexdigest()
+    if digest != manifest["sha256"]:
+        raise ValueError(f"{out_dir}/questions.jsonl does not match its manifest")
+    return {"benchmark": manifest["name"], "version": manifest["version"], "sha256": digest}
+
+
 def load(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text().splitlines() if line]

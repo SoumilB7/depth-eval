@@ -25,6 +25,16 @@ def truth_log(q):
             "final": list(q["truth"]["final"])}
 
 
+def write_set(folder, *questions, version="9.9.9"):
+    """A question set on disk, as build writes it: questions.jsonl + manifest."""
+    import hashlib
+    folder.mkdir()
+    data = "".join(json.dumps(x) + "\n" for x in questions).encode()
+    (folder / "questions.jsonl").write_bytes(data)
+    (folder / "manifest.json").write_text(json.dumps(
+        {"name": "depth-eval", "version": version, "sha256": hashlib.sha256(data).hexdigest()}))
+
+
 def graded(q, log):
     return grade(q["truth"]["stages"], q["truth"]["final"], log)
 
@@ -77,14 +87,48 @@ def test_grading_order_count_final_malformed(q):
 
 def test_score_grades_a_directory_and_lists_missing_answers(q, tmp_path, capsys):
     other = B.question(IDENTITY | {"id": "default-s5-L10-02", "instruction_seed": 38})
-    (tmp_path / "set").mkdir()
-    (tmp_path / "set" / "questions.jsonl").write_text(json.dumps(q) + "\n" + json.dumps(other) + "\n")
+    write_set(tmp_path / "set", q, other)
     (tmp_path / "answers").mkdir()
     (tmp_path / "answers" / f"{q['id']}.txt").write_text(json.dumps(truth_log(q)))
     main(["score", str(tmp_path / "answers"), "--questions", str(tmp_path / "set")])
     summary = json.loads((tmp_path / "results.json").read_text())["summary"]
     assert (summary["exact"], summary["answered"], summary["missing"]) == (1, 1, [other["id"]])
     assert summary["by_chain_depth"]
+    assert summary["questions"]["version"] == "9.9.9" and summary["run"] is None
+
+
+def test_a_run_carries_its_set_and_is_scored_only_against_it(q, tmp_path):
+    from depth_eval.bench.cli import _stamp
+    write_set(tmp_path / "set", q)
+    write_set(tmp_path / "newer", q | {"prompt": q["prompt"] + " "}, version="9.9.10")
+    run = tmp_path / "run"
+    (run / "answers").mkdir(parents=True)
+    (run / "answers" / f"{q['id']}.txt").write_text(json.dumps(truth_log(q)))
+    _stamp(run, B.identity(tmp_path / "set") | {"model": "m", "runner": "arena"})
+    with pytest.raises(SystemExit):   # never resumed against another set or model
+        _stamp(run, B.identity(tmp_path / "newer") | {"model": "m", "runner": "arena"})
+    with pytest.raises(SystemExit):
+        _stamp(run, B.identity(tmp_path / "set") | {"model": "other", "runner": "arena"})
+    with pytest.raises(SystemExit):   # never scored against another set
+        main(["score", str(run / "answers"), "--questions", str(tmp_path / "newer")])
+    main(["score", str(run / "answers"), "--questions", str(tmp_path / "set")])
+    summary = json.loads((run / "results.json").read_text())["summary"]
+    assert summary["run"]["model"] == "m" and summary["questions"]["sha256"] == summary["run"]["sha256"]
+    (tmp_path / "set" / "questions.jsonl").write_text("tampered\n")
+    with pytest.raises(ValueError):   # a file that no longer matches its manifest
+        B.identity(tmp_path / "set")
+
+
+def test_the_released_set_is_built_from_this_code():
+    """Fast guard (verify is the full proof): the released prompts carry the
+    rules text in the code, under the code's version."""
+    from pathlib import Path
+
+    from depth_eval import __version__
+    from depth_eval.lines import CONVENTIONS
+    released = Path(__file__).resolve().parents[2] / "benchmark" / "v1"
+    assert B.identity(released)["version"] == __version__
+    assert all(x["prompt"].startswith(CONVENTIONS) for x in B.load(released / "questions.jsonl"))
 
 
 def message(stop_reason, *content):

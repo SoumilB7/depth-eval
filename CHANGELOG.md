@@ -32,6 +32,13 @@ which found three more places to pin down before any run on 1.2.0:
 - "x minus the number" is its own inverse whatever x is (a number, a
   count, a value from a list).
 
+Tooling (same day, no change to the set): every run folder carries
+`run.json` (the set's name, version, sha256, the model, the runner); a
+run never resumes against another set or model; `score` refuses answers
+made on another set and records the set's identity in `results.json`; a
+test fails as soon as the released prompts and the code's rules text
+disagree.
+
 ## 1.1.0 — wording audit
 
 Same 360 questions — the same starting lists, instructions and true

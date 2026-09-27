@@ -121,15 +121,28 @@ seed 5000 + *i*) and the sha256 of `questions.jsonl`. `depth-eval verify`
 regenerates all 360 questions from the code and requires the same bytes.
 The question set changes only with a new version.
 
-## Preliminary results (earlier question sets, not v1)
+## Pilot results
 
-| model | set | exact |
-|---|---|---|
-| Claude Fable 5.1 | 48 questions, 5–40 instructions, length 10 | 48 / 48 |
-| Claude Haiku 4.5 | 36 questions, 10–40 instructions, length 10 | 18 / 36 |
+One question from each of the 36 cells (sample 01), through the arena.
+These ran on earlier versions of the rules text — the questions, lists
+and answers are the same as 1.2.0 — and each miss was traced through the
+model's own path; the wording gaps they exposed are what 1.1.0 and 1.2.0
+fixed. They are not 1.2.0 results.
 
-Reasoning-only solvers without calculators. They show the task separates
-models; v1 results are to be produced with `depth-eval run`.
+| model | version | exact | depth reached | by instructions 10 / 20 / 40 / 80 |
+|---|---|---|---|---|
+| Claude Sonnet 5 | 1.1.0 | 33 / 36 | 97.1% | 8/9 · 9/9 · 8/9 · 8/9 |
+| Claude Haiku 4.5 | 1.1.0 | 15 / 36 | 59.1% | 9/9 · 4/9 · 1/9 · 1/9 |
+| Claude Haiku 4.5 | 1.0.0 | 12 / 36 | 54.2% | 8/9 · 2/9 · 2/9 · 0/9 |
+
+Before v1 (earlier question sets, reasoning only, no calculators): Claude
+Fable 5.1 48 / 48; Claude Haiku 4.5 18 / 36.
+
+**Provenance.** A run folder carries `run.json` — the question set's
+name, version and sha256, the model and the runner — written when the run
+starts; a run never resumes against another set or model, and `score`
+refuses answers whose `run.json` names another set and writes the set's
+identity into `results.json`.
 
 ## Limitations
 

@@ -8,9 +8,13 @@
 
 `run` writes answers/{id}.txt and transcripts/{id}.jsonl (every model turn
 and tool call) and resumes: a question with an answer file is skipped. A
-failure on our side leaves no answer file. `score` grades any directory of
-{id}.txt stage logs — from `run` or from any other way of asking a model —
-against questions.jsonl alone; a missing answer is listed, never scored.
+failure on our side leaves no answer file. Every run folder carries
+run.json — the set's name, version and sha256, the model and the runner —
+and a run never resumes against a different set or model. `score` grades
+any directory of {id}.txt stage logs — from `run` or from any other way of
+asking a model — against questions.jsonl alone, refuses answers whose
+run.json names another set, and writes the set's identity into
+results.json; a missing answer is listed, never scored.
 """
 
 import argparse
@@ -19,9 +23,10 @@ import logging
 import sys
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from pathlib import Path
 
-from .build import build, load, verify
+from .build import build, identity, load, verify
 from .grade import grade
 
 DEFAULT_SET = Path("benchmark/v1")
@@ -44,17 +49,34 @@ def cmd_verify(args) -> None:
     sys.exit(0 if ok else 1)
 
 
-def _run_all(args, solve_one, label: str) -> None:
+def _stamp(out: Path, record: dict) -> None:
+    """run.json: what this run folder was made against. A folder is never
+    resumed against a different question set or model."""
+    path = out / "run.json"
+    if path.exists():
+        earlier = json.loads(path.read_text())
+        if (earlier["sha256"], earlier["model"]) != (record["sha256"], record["model"]):
+            sys.exit(f"{out} holds a run of {earlier['model']} on {earlier['benchmark']} "
+                     f"{earlier['version']} ({earlier['sha256'][:12]}…) — use a new --out")
+        return
+    path.write_text(json.dumps(record | {"started": datetime.now(timezone.utc).isoformat(timespec="seconds")},
+                               indent=2) + "\n")
+
+
+def _run_all(args, solve_one, runner: str, model: str) -> None:
     """Every question not yet answered, `args.workers` at a time. solve_one(q)
     returns (answer or None, transcript events, summary). A question without
     an answer (our side failed) gets no answer file — never scored."""
+    the_set = identity(Path(args.questions))
     prefixes = tuple((args.only or "").split(","))
     questions = [q for q in load(Path(args.questions) / "questions.jsonl") if q["id"].startswith(prefixes)]
     out = Path(args.out)
     (out / "answers").mkdir(parents=True, exist_ok=True)
     (out / "transcripts").mkdir(exist_ok=True)
+    _stamp(out, the_set | {"model": model, "runner": runner})
     todo = [q for q in questions if not (out / "answers" / f"{q['id']}.txt").exists()]
-    print(f"{len(todo)} to run ({len(questions) - len(todo)} already answered) — {label}")
+    print(f"{len(todo)} to run ({len(questions) - len(todo)} already answered) — {runner} on {model}, "
+          f"{the_set['benchmark']} {the_set['version']}")
 
     def one(q):
         try:
@@ -89,14 +111,13 @@ def cmd_run(args) -> None:
         return answer, events, {"outcome": "answered",
                                 "calculator_calls": sum("tool" in e for e in events)}
 
-    _run_all(args, solve_one, f"API solver on {solver.model}")
+    _run_all(args, solve_one, "API solver", solver.model)
 
 
 def cmd_arena(args) -> None:
     from . import arena
 
-    _run_all(args, lambda q: arena.solve(q["prompt"], args.model),
-             f"arena (headless Claude Code) on {args.model}")
+    _run_all(args, lambda q: arena.solve(q["prompt"], args.model), "arena (headless Claude Code)", args.model)
 
 
 def _table(rows, key) -> dict:
@@ -112,8 +133,14 @@ def _table(rows, key) -> dict:
 
 
 def cmd_score(args) -> None:
+    the_set = identity(Path(args.questions))
     questions = {q["id"]: q for q in load(Path(args.questions) / "questions.jsonl")}
     answers = Path(args.answers)
+    stamp = answers.parent / "run.json"
+    run = json.loads(stamp.read_text()) if stamp.exists() else None
+    if run and run["sha256"] != the_set["sha256"]:
+        sys.exit(f"these answers were made on {run['benchmark']} {run['version']} ({run['sha256'][:12]}…), "
+                 f"not on {the_set['version']} ({the_set['sha256'][:12]}…) — score them against that set")
     rows, missing = [], []
     for qid, q in questions.items():
         path = answers / f"{qid}.txt"
@@ -126,6 +153,8 @@ def cmd_score(args) -> None:
     if not rows:
         sys.exit(f"no answers in {answers}")
     summary = {
+        "questions": the_set,
+        "run": run,  # None: the answers carry no record of how they were made
         "answered": len(rows),
         "missing": missing,
         "exact": sum(r["exact"] for r in rows),
@@ -138,6 +167,8 @@ def cmd_score(args) -> None:
     }
     out = Path(args.out) if args.out else answers.parent / "results.json"
     out.write_text(json.dumps({"summary": summary, "questions": rows}, indent=2) + "\n")
+    print(f"{the_set['benchmark']} {the_set['version']}"
+          + (f" — {run['model']}, {run['runner']}" if run else " — answers of unknown origin"))
     print(f"exact {summary['exact']}/{len(rows)} ({summary['exact_rate']:.1%})  "
           f"depth reached {summary['depth_reached']:.1%}  missing {len(missing)}  -> {out}")
     for name in ("by_config", "by_steps", "by_length", "by_chain_depth"):
