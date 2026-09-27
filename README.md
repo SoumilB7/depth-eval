@@ -2,7 +2,7 @@
 
 **How many chained instructions can a model hold in its head?**
 
-![version](https://img.shields.io/badge/benchmark-v2.0.0-blue) ![questions](https://img.shields.io/badge/questions-80-orange) ![Python](https://img.shields.io/badge/Python-3.10+-blue) ![license](https://img.shields.io/badge/license-MIT%20%7C%20CC%20BY%204.0-lightgrey)
+![version](https://img.shields.io/badge/benchmark-v2.1.0-blue) ![questions](https://img.shields.io/badge/questions-80-orange) ![Python](https://img.shields.io/badge/Python-3.10+-blue) ![license](https://img.shields.io/badge/license-MIT%20%7C%20CC%20BY%204.0-lightgrey)
 
 A model gets a list of numbers and a numbered chain of instructions that
 change it — some use only the numbers in front of them, some read what
@@ -46,15 +46,15 @@ prompt and two calculators, nothing else):
 
 ```bash
 cp .env.example .env                       # add ANTHROPIC_API_KEY
-depth-eval run --model claude-opus-5 --out runs/opus5-v2.0.0
-depth-eval score runs/opus5-v2.0.0/answers
+depth-eval run --model claude-opus-5 --out runs/opus5-v2.1.0
+depth-eval score runs/opus5-v2.1.0/answers
 ```
 
 **Or run it through Claude Code** (no API key — the CLI's own login):
 
 ```bash
 pip install '.[arena]'
-depth-eval arena --model claude-haiku-4-5 --out runs/haiku-4.5-arena-v2.0.0
+depth-eval arena --model claude-haiku-4-5 --out runs/haiku-4.5-arena-v2.1.0
 ```
 
 The arena gives each question its own headless `claude -p` session in an

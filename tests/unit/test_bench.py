@@ -275,6 +275,22 @@ def test_the_rules_say_what_the_engine_does():
                [1]) == [202]
 
 
+def test_numbers_from_the_calculator_are_measured(tmp_path):
+    from depth_eval.bench.cli import calculated_share, calculator_numbers
+    api = tmp_path / "api.jsonl"      # the API solver's transcript format
+    api.write_text(json.dumps({"tool": {"name": "bulk_calculator", "output": "[5, 6]", "is_error": False}}) + "\n"
+                   + json.dumps({"tool": {"name": "calculator", "output": "Error: 99", "is_error": True}}) + "\n")
+    arena = tmp_path / "arena.jsonl"  # the arena's (stream-json) format
+    arena.write_text(json.dumps({"type": "user", "message": {"content": [
+        {"type": "tool_result", "content": [{"type": "text", "text": "-7"}], "is_error": False}]}}) + "\n")
+    assert calculator_numbers(api) == {5, 6} and calculator_numbers(arena) == {-7}
+    # start [1, 2]; stage 1 writes 5 and 6 (both from the calculator); stage 2 swaps them (nothing new);
+    # stage 3 writes 5 and 9 (9 worked out in the head)
+    stages = [{"state": [5, 6]}, {"state": [6, 5]}, {"state": [5, 9]}]
+    assert calculated_share(stages, [1, 2], {5, 6}) == round(2 / 3, 3)
+    assert calculated_share([{"state": [1, 2]}], [1, 2], set()) is None
+
+
 def test_arena_audit_accepts_only_the_exact_setup():
     from depth_eval.bench.arena import CALCULATORS, audit
     init = {"type": "system", "subtype": "init", "model": "m", "tools": sorted(CALCULATORS),

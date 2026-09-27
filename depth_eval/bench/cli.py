@@ -20,12 +20,14 @@ results.json; a missing answer is listed, never scored.
 import argparse
 import json
 import logging
+import re
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .answer import MalformedAnswer, parse_stage_log
 from .build import build, identity, load, verify
 from .grade import grade
 
@@ -120,6 +122,41 @@ def cmd_arena(args) -> None:
     _run_all(args, lambda q: arena.solve(q["prompt"], args.model), "arena (headless Claude Code)", args.model)
 
 
+def calculator_numbers(transcript: Path) -> set[int]:
+    """Every number a calculator returned in one answer's transcript (the API
+    solver's or the arena's format); failed calls return none."""
+    numbers = set()
+    for line in transcript.read_text().splitlines():
+        e = json.loads(line)
+        outputs = [e["tool"]["output"]] if "tool" in e and not e["tool"]["is_error"] else []
+        if e.get("type") == "user":
+            for part in e["message"].get("content") or []:
+                if isinstance(part, dict) and part.get("type") == "tool_result" and not part.get("is_error"):
+                    c = part.get("content")
+                    outputs.append(c if isinstance(c, str) else " ".join(x.get("text", "") for x in c or []))
+        for out in outputs:
+            numbers.update(int(x) for x in re.findall(r"-?\d+", out))
+    return numbers
+
+
+def calculated_share(stages, start, numbers) -> float | None:
+    """The rules require every calculated number to come from a calculator.
+    Of the numbers an answer newly wrote (not already in the list just before
+    that stage), the share some calculator call returned; None if it wrote no
+    new number. A coincidental match can only raise it."""
+    prev, new, backed = start, 0, 0
+    for stage in stages:
+        pool = Counter(prev)
+        for v in stage["state"]:
+            if pool[v]:
+                pool[v] -= 1
+            else:
+                new += 1
+                backed += v in numbers
+        prev = stage["state"]
+    return round(backed / new, 3) if new else None
+
+
 def _table(rows, key) -> dict:
     groups = defaultdict(list)
     for r in rows:
@@ -130,6 +167,14 @@ def _table(rows, key) -> dict:
                      "depth_reached": round(sum(r["stages_matched"] / r["stages_expected"]
                                                 for r in v) / len(v), 3)}
             for k, v in sorted(groups.items())}
+
+
+def _calculator_summary(rows) -> dict | None:
+    shares = [r["from_calculator"] for r in rows if r["from_calculator"] is not None]
+    if not shares:
+        return None
+    return {"answers_measured": len(shares), "mean_share": round(sum(shares) / len(shares), 3),
+            "fully_from_calculator": sum(s == 1 for s in shares)}
 
 
 def cmd_score(args) -> None:
@@ -148,8 +193,17 @@ def cmd_score(args) -> None:
             missing.append(qid)
             continue
         g = grade(q["truth"]["stages"], q["truth"]["final"], path.read_text()).as_dict()
+        share = None
+        transcript = answers.parent / "transcripts" / f"{qid}.jsonl"
+        if transcript.exists():
+            try:
+                start = json.loads(re.search(r"Starting list: (\[.*\])", q["prompt"]).group(1))
+                share = calculated_share(parse_stage_log(path.read_text())["stages"], start,
+                                         calculator_numbers(transcript))
+            except MalformedAnswer:
+                pass
         rows.append({"id": qid, "config": q["config"], "steps": q["steps"], "length": q["length"],
-                     "chain_depth": q["measures"]["chain_depth"]} | g)
+                     "chain_depth": q["measures"]["chain_depth"], "from_calculator": share} | g)
     if not rows:
         sys.exit(f"no answers in {answers}")
     summary = {
@@ -164,6 +218,7 @@ def cmd_score(args) -> None:
         "by_steps": _table(rows, lambda r: r["steps"]),
         "by_length": _table(rows, lambda r: r["length"]),
         "by_chain_depth": _table(rows, lambda r: r["chain_depth"]),
+        "from_calculator": _calculator_summary(rows),
     }
     out = Path(args.out) if args.out else answers.parent / "results.json"
     out.write_text(json.dumps({"summary": summary, "questions": rows}, indent=2) + "\n")
@@ -171,6 +226,10 @@ def cmd_score(args) -> None:
           + (f" — {run['model']}, {run['runner']}" if run else " — answers of unknown origin"))
     print(f"exact {summary['exact']}/{len(rows)} ({summary['exact_rate']:.1%})  "
           f"depth reached {summary['depth_reached']:.1%}  missing {len(missing)}  -> {out}")
+    calc = summary["from_calculator"]
+    if calc:
+        print(f"  numbers from the calculator: {calc['mean_share']:.1%} on average; "
+              f"{calc['fully_from_calculator']}/{calc['answers_measured']} answers entirely")
     for name in ("by_config", "by_steps", "by_length", "by_chain_depth"):
         print(f"  {name[3:]:<12} " + "  ".join(f"{k}: {v['exact']}/{v['n']}" for k, v in summary[name].items()))
 

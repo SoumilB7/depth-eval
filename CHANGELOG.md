@@ -4,6 +4,26 @@ The benchmark version pins the question set: `benchmark/v1/questions.jsonl`
 changes only with a new version, and `depth-eval verify` proves a copy
 matches the code that made it.
 
+## 2.1.0 — every calculation through the calculator
+
+Same 80 questions and true answers. The opening sentence now makes the
+calculators mandatory for arithmetic: "Do every calculation with the
+calculators you are given: every number you write that comes from
+arithmetic must be one a calculator returned, never one worked out in
+your head." The model's own reasoning is left with what the benchmark
+measures — which value each reference points to, which positions a line
+selects, whether it runs and when.
+
+Why: on the depth ladder under the old wording, the share of newly
+computed numbers that a calculator had actually returned was 0% for
+Claude Sonnet 5.5, 6% for Opus 5.5, 28% for Fable 5.1 and 39% for Opus 5
+— the strongest models did most arithmetic in their heads, and slips
+like 78 mod 78 = 78 came from there.
+
+`score` now reports that share per answer (`from_calculator`) and in the
+summary: of the numbers an answer newly wrote, how many some calculator
+call returned (read from the run's transcripts).
+
 ## 2.0.0 — one axis: depth
 
 A new question set, built for reading a model's accuracy as a curve

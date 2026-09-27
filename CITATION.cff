@@ -4,7 +4,7 @@ title: "depth-eval: how many chained instructions can a model hold in its latent
 type: software
 authors:
   - name: "Soumil"
-version: "2.0.0"
+version: "2.1.0"
 repository-code: "https://github.com/SoumilB7/depth-eval"
 license: MIT
 keywords:

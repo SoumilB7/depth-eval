@@ -39,9 +39,13 @@ surrounding text are tolerated.
 
 **Allowed help** — reasoning, plus two calculators (integer expressions,
 one value or a whole list) and nothing else: no code execution, no files,
-no retrieval. Arithmetic is offloaded so that what is measured is keeping
-the state, not multiplying; every result is reported in this one
-setting.
+no retrieval. The calculators are **mandatory for arithmetic**: every
+number a model writes that comes from a calculation must be one a
+calculator returned. What is measured is keeping the state — which value
+each reference points to, which positions a line selects, which line runs
+when — not multiplying; every result is reported in this one setting.
+`score` reports how far each answer kept to it (`from_calculator`: of the
+numbers it newly wrote, the share some calculator call returned).
 
 ## The question set
 
