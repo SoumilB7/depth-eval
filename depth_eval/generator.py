@@ -138,7 +138,10 @@ class GeneratorConfig:
         default_factory=lambda: {"near": 1, "mid": 1, "far": 2}
     )
     chain_bias: float = 0.5
-    hold_chance: float = 0.25
+    # chance a line carries a hold it does not need (a line that uses a LATER
+    # line's result always carries its hold). Lowered 2026-09-27: random holds
+    # only reorder — they were ~30% of lines and a quarter of the text
+    hold_chance: float = 0.10
     include_powers: bool = False  # n**x / x**n explode under chaining
     # ACCEPTANCE floors, applied by the validator to the trial run (decision 13):
     # the list after EVERY line keeps at least this fraction of distinct values

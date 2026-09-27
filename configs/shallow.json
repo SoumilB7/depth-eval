@@ -62,7 +62,7 @@
     "far": 1
   },
   "chain_bias": 0.0,
-  "hold_chance": 0.1,
+  "hold_chance": 0.05,
   "include_powers": false,
   "min_distinct_fraction": 0.3,
   "max_noop_fraction": 0.15,
