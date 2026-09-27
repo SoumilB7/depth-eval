@@ -25,18 +25,9 @@ Unschedulable chains (self-hold, circular holds, holds out of range)
 raise; the question generator must never emit them.
 """
 
-from dataclasses import dataclass
-
 from .lines import DataLine
 from .meta.base import MetaInstruction
 from .ops.operands import effect_refs, scope_refs
-
-
-@dataclass(frozen=True)
-class Edge:
-    kind: str  # "exec" or "def"
-    src: int   # must run first (exec) / must be read (def)
-    dst: int
 
 
 def consumes(instruction) -> set[int]:
@@ -65,20 +56,6 @@ def chain_triggers(instructions) -> dict[int, set[int]]:
         n: {ins.hold_until_after} if ins.hold_until_after is not None else set()
         for n, ins in enumerate(instructions, start=1)
     }
-
-
-def build_edges(instructions) -> list[Edge]:
-    edges = [
-        Edge("exec", src, dst)
-        for dst, refs in chain_triggers(instructions).items()
-        for src in sorted(refs)
-    ]
-    for n, ins in enumerate(instructions, start=1):
-        if isinstance(ins, MetaInstruction) and ins.verb.klass in ("read", "edit"):
-            edges.append(Edge("def", ins.target, n))
-        if isinstance(ins, DataLine):
-            edges += [Edge("def", j, n) for j in sorted(scope_refs(ins.application.extent.where))]
-    return edges
 
 
 def schedule(instructions) -> list[int]:

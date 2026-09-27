@@ -101,10 +101,6 @@ def _is_companion_ref(e) -> bool:
     return isinstance(e, sp.Indexed) and e.base == B
 
 
-def _is_start_ref(e) -> bool:
-    return isinstance(e, sp.Indexed) and e.base == START
-
-
 def _is_pos_ref(e) -> bool:
     return isinstance(e, sp.Indexed) and e.base == POS
 
@@ -272,20 +268,6 @@ def resolve_elementwise(
         _collapse(expr.subs(P, i), seq, effects, companion, original)
         for i in range(len(seq))
     ]
-
-
-def resolvable(
-    operand,
-    seq: list[int],
-    effects: dict[int, Effect] | None = None,
-    companion: list[int] | None = None,
-    original: list[int] | None = None,
-) -> bool:
-    try:
-        resolve(operand, seq, effects, companion, original)
-        return True
-    except (ValueError, ZeroDivisionError):
-        return False
 
 
 def _position_words(index) -> str:

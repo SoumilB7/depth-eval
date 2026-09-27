@@ -67,9 +67,6 @@ DIRECT_KINDS: dict[str, bool] = {
     "composite": False,
 }
 
-# direct types = position forms; the generator draws only the first two today
-POSITION_FORMS = ("fixed", "own", "offset", "indirect")
-
 # relative kinds: name -> (group, verbs). "effect" is a data line with a
 # Changed[j] operand, so it has no verb.
 RELATIVE_KINDS: dict[str, tuple[str, tuple[str, ...]]] = {
@@ -223,10 +220,8 @@ def references(instructions) -> dict[int, set[int]]:
     return edges
 
 
-def reference_shape(instructions) -> tuple[int, float]:
-    """(R, d): R = the longest reference chain, in hops (0 = no coupling);
-    d = the share of references that reach FAR. Written `R3 d0.25`."""
-    edges = references(instructions)
+def _chain_lengths(edges: dict[int, set[int]]) -> dict[int, int]:
+    """For every line, the longest reference chain starting there, in hops."""
     longest: dict[int, int] = {}
 
     def depth(i: int, path: frozenset) -> int:
@@ -239,8 +234,24 @@ def reference_shape(instructions) -> tuple[int, float]:
         longest[i] = best
         return best
 
+    return {i: depth(i, frozenset({i})) for i in edges}
+
+
+def chain_depths(instructions) -> list[int]:
+    """CHAIN DEPTH per line: how many instructions the longest chain that
+    starts at that line passes through (itself included) — 1 for a line
+    that names no other line. The question's chain depth is the max. A
+    measurement for reports, never part of the prompt."""
+    hops = _chain_lengths(references(instructions))
+    return [1 + hops[i] for i in range(1, len(instructions) + 1)]
+
+
+def reference_shape(instructions) -> tuple[int, float]:
+    """(R, d): R = the longest reference chain, in hops (0 = no coupling);
+    d = the share of references that reach FAR. Written `R3 d0.25`."""
+    edges = references(instructions)
     steps = len(instructions)
-    R = max((depth(i, frozenset({i})) for i in edges), default=0)
+    R = max(_chain_lengths(edges).values(), default=0)
     pairs = [(i, j) for i, js in edges.items() for j in js]
     d = sum(distance(i, j, steps) == "far" for i, j in pairs) / len(pairs) if pairs else 0.0
     return R, round(d, 2)

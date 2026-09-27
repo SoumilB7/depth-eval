@@ -21,7 +21,6 @@ from .operands import (
     resolve_mask,
     scope_refs,
     is_elementwise,
-    resolvable,
     resolve,
     resolve_elementwise,
 )
@@ -50,7 +49,6 @@ __all__ = [
     "is_elementwise",
     "resolve",
     "resolve_elementwise",
-    "resolvable",
     "resolve_mask",
     "scope_refs",
     "Scope",
