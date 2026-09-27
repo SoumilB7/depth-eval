@@ -23,10 +23,12 @@ JSON stage log: the list after every instruction.
 the final list right) is primary; depth reached (stages right before the
 first error, as a share) and a per-stage report come with every grade.
 
-**Tooling.** `depth-eval build | verify | run | score`; a reference API
-solver that gets the prompt and two calculators, nothing else — with each
-model's own thinking settings and full output cap, so no answer is cut
-short by the harness.
+**Tooling.** `depth-eval build | verify | run | arena | score`. `run` is
+the reference API solver: the prompt and two calculators, nothing else,
+with each model's own thinking settings and full output cap, so no answer
+is cut short by the harness. `arena` runs each question in its own audited
+headless Claude Code session with only the same two calculators (served
+over MCP) — for runs without an API key, labelled separately.
 
 **Pre-release audit.** Before any run, every line that repeats or undoes a
 line which changes another instruction (rather than the list) was found

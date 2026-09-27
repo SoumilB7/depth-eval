@@ -11,6 +11,9 @@ license = { text = "MIT (code), CC BY 4.0 (question set)" }
 requires-python = ">=3.10"
 dependencies = ["sympy>=1.12", "python-dotenv>=1.0", "anthropic>=1.0"]
 
+[project.optional-dependencies]
+arena = ["mcp>=1.0"]   # `depth-eval arena`: the calculators as an MCP server for headless Claude Code
+
 [project.scripts]
 depth-eval = "depth_eval.bench.cli:main"
 

@@ -47,7 +47,21 @@ depth-eval run --model claude-opus-5 --out runs/opus5
 depth-eval score runs/opus5/answers
 ```
 
-`run` resumes where it stopped and records every model turn and tool call
+**Or run it through Claude Code** (no API key — the CLI's own login):
+
+```bash
+pip install '.[arena]'
+depth-eval arena --model claude-haiku-4-5 --out runs/haiku-arena
+```
+
+The arena gives each question its own headless `claude -p` session in an
+empty folder: the prompt as the only message, no system prompt, the two
+calculators as the only tools, no settings, skills or memory. Each
+session is audited from its transcript before its answer counts. The CLI
+still adds one fixed note (~575 tokens: working folder, model name, date),
+so arena results are labelled as such and never mixed with `run` results.
+
+`run` and `arena` resume where they stopped and records every model turn and tool call
 in `transcripts/`. `score` reports the exact rate, depth reached, and both
 by config, instructions, list length and chain depth, plus a stage-by-stage
 report for every answer.
@@ -76,14 +90,14 @@ reverse                                           → [7, 2, 9, 4]
 
 Preliminary, on earlier question sets (not v1), reasoning-only solvers:
 Claude Fable 5.1 48 / 48, Claude Haiku 4.5 18 / 36 — the task separates
-models. v1 results come from `depth-eval run`.
+models. v1 results come from `depth-eval run` or `depth-eval arena`.
 
 ## Repository
 
 ```
 benchmark/v1/        the question set + manifest
 depth_eval/          the engine: operations, instructions, validation, generation
-depth_eval/bench/    the benchmark: suite, grading, reference solver, CLI
+depth_eval/bench/    the benchmark: suite, grading, reference solver, arena, CLI
 tests/               python -m pytest
 ```
 

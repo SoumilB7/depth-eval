@@ -147,3 +147,17 @@ def test_repeat_and_undo_of_a_change_say_what_they_do():
     assert "it changed no numbers" in text and "so this does nothing" in text
     assert "make that change once more" in text
     assert execute(chain, [0])[0] == [12]              # the doubling happened twice
+
+
+def test_arena_audit_accepts_only_the_exact_setup():
+    from depth_eval.bench.arena import CALCULATORS, audit
+    init = {"type": "system", "subtype": "init", "model": "m", "tools": sorted(CALCULATORS),
+            "skills": [], "slash_commands": [], "plugins": []}
+    call = {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "mcp__calc__calculator"}]}}
+    assert audit([init, call], "m") is None
+    assert "ran on" in audit([init], "other")
+    assert "tools were" in audit([init | {"tools": sorted(CALCULATORS) + ["Bash"]}], "m")
+    assert "skills" in audit([init | {"skills": ["x"]}], "m")
+    bad = {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash"}]}}
+    assert "called Bash" in audit([init, bad], "m")
+    assert audit([], "m") == "no session header"

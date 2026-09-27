@@ -98,6 +98,20 @@ of it). A question with no answer because the harness failed is listed as
 missing and re-run, never scored; a malformed or refused reply is the
 model's answer and scores as wrong.
 
+## Running a model
+
+Two runners give the model the same thing — the prompt as the only
+message and the two calculators as the only tools:
+
+| runner | how | extra context |
+|---|---|---|
+| `depth-eval run` (reference) | Anthropic API, no system prompt | none |
+| `depth-eval arena` | one headless Claude Code session per question, empty folder, system prompt replaced with nothing, built-in tools off | one fixed ~575-token note the CLI always adds (working folder, model name, date) |
+
+The arena audits every session from its own transcript (model, tool list,
+no skills or plugins, every tool call a calculator) before the answer
+counts. Report which runner produced a result; do not pool the two.
+
 ## Reproducibility
 
 `manifest.json` records the version, the suite definition, the three config
