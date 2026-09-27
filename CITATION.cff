@@ -1,0 +1,15 @@
+cff-version: 1.2.0
+message: "If you use depth-eval, please cite it as below."
+title: "depth-eval: how many chained instructions can a model hold in its latent space?"
+type: software
+authors:
+  - name: "Soumil"
+version: "1.0.0"
+repository-code: "https://github.com/SoumilB7/depth-eval"
+license: MIT
+keywords:
+  - benchmark
+  - evaluation
+  - instruction following
+  - state tracking
+  - large language models
