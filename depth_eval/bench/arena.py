@@ -22,7 +22,9 @@ and never mixed with API-run results.
 Every question is audited from its own transcript before its answer
 counts: the session's model, its tool list (exactly the two calculators),
 no skills or slash commands, no plugin except the CLI's built-in ones, and
-every tool call one of the two. Built-in plugins (telemetry, agents-md in
+every tool call one of the two (a call to a tool the session does not have
+is refused by the CLI and does nothing, so it is the model's stumble, not a
+breach). Built-in plugins (telemetry, agents-md in
 2.1.284) cannot be switched off — --safe-mode would drop the calculators
 too — and add nothing the model sees: any tool, skill or command they
 gave would fail the checks above, the working folder holds no AGENTS.md,
@@ -81,10 +83,16 @@ def audit(events: list[dict], model: str) -> str | None:
     foreign = [p.get("source") for p in init.get("plugins") or [] if not str(p.get("source")).endswith("@builtin")]
     if foreign:
         return f"plugins were loaded: {foreign}"
+    # a call to a tool the session does not have is refused by the CLI ("No such
+    # tool available") and does nothing — the model's stumble, not a breach
+    refused = {part.get("tool_use_id") for e in events if e.get("type") == "user"
+               for part in e["message"].get("content") or []
+               if isinstance(part, dict) and part.get("type") == "tool_result" and part.get("is_error")}
     for e in events:
         if e.get("type") == "assistant":
             for part in e["message"].get("content") or []:
-                if part.get("type") == "tool_use" and part.get("name") not in CALCULATORS:
+                if (part.get("type") == "tool_use" and part.get("name") not in CALCULATORS
+                        and part.get("id") not in refused):
                     return f"called {part.get('name')}"
     return None
 

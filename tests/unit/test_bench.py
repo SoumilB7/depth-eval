@@ -307,6 +307,9 @@ def test_arena_audit_accepts_only_the_exact_setup():
     builtin = {"name": "telemetry", "path": "builtin", "source": "telemetry@builtin"}
     assert audit([init | {"plugins": [builtin]}], "m") is None
     assert "plugins" in audit([init | {"plugins": [builtin, {"name": "x", "source": "x@market"}]}], "m")
-    bad = {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash"}]}}
+    bad = {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "t1", "name": "Bash"}]}}
     assert "called Bash" in audit([init, bad], "m")
+    refused = {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "is_error": True,
+                                                         "content": "Error: No such tool available: Bash"}]}}
+    assert audit([init, bad, refused], "m") is None   # refused: it never ran
     assert audit([], "m") == "no session header"
