@@ -4,6 +4,20 @@ The benchmark version pins the question set: `benchmark/v1/questions.jsonl`
 changes only with a new version, and `depth-eval verify` proves a copy
 matches the code that made it.
 
+## 2.2.0 — two settings: deep and shallow
+
+The set doubles to 160 questions: the 80 deep questions of 2.1.0,
+byte-identical and first in the file (their seeds do not move), then 80
+shallow questions at the same depths — 10 / 20 / 40 / 60 / 80 / 100 / 120 /
+160 instructions, 10 each. The shallow config has far fewer lines that name
+another line, so the two halves separate long-but-simple from
+long-and-interlinked.
+
+`depth-eval arena --effort low|medium|high|xhigh|max` runs a model at a
+set reasoning effort; the effort is recorded in `run.json`, and a run
+folder never mixes efforts. (Claude Haiku 4.5 ignores the setting —
+measured: its reasoning spend does not move with it.)
+
 ## 2.1.0 — every calculation through the calculator
 
 Same 80 questions and true answers. The opening sentence now makes the

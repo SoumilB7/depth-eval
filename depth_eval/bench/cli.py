@@ -53,19 +53,20 @@ def cmd_verify(args) -> None:
 
 def _stamp(out: Path, record: dict) -> None:
     """run.json: what this run folder was made against. A folder is never
-    resumed against a different question set or model."""
+    resumed against a different question set, model or effort."""
     path = out / "run.json"
     if path.exists():
         earlier = json.loads(path.read_text())
-        if (earlier["sha256"], earlier["model"]) != (record["sha256"], record["model"]):
-            sys.exit(f"{out} holds a run of {earlier['model']} on {earlier['benchmark']} "
-                     f"{earlier['version']} ({earlier['sha256'][:12]}…) — use a new --out")
+        same = ("sha256", "model", "effort")
+        if [earlier.get(k) for k in same] != [record.get(k) for k in same]:
+            sys.exit(f"{out} holds a run of {earlier['model']} (effort {earlier.get('effort')}) on "
+                     f"{earlier['benchmark']} {earlier['version']} ({earlier['sha256'][:12]}…) — use a new --out")
         return
     path.write_text(json.dumps(record | {"started": datetime.now(timezone.utc).isoformat(timespec="seconds")},
                                indent=2) + "\n")
 
 
-def _run_all(args, solve_one, runner: str, model: str) -> None:
+def _run_all(args, solve_one, runner: str, model: str, effort: str | None = None) -> None:
     """Every question not yet answered, `args.workers` at a time. solve_one(q)
     returns (answer or None, transcript events, summary). A question without
     an answer (our side failed) gets no answer file — never scored."""
@@ -75,9 +76,10 @@ def _run_all(args, solve_one, runner: str, model: str) -> None:
     out = Path(args.out)
     (out / "answers").mkdir(parents=True, exist_ok=True)
     (out / "transcripts").mkdir(exist_ok=True)
-    _stamp(out, the_set | {"model": model, "runner": runner})
+    _stamp(out, the_set | {"model": model, "effort": effort, "runner": runner})
     todo = [q for q in questions if not (out / "answers" / f"{q['id']}.txt").exists()]
-    print(f"{len(todo)} to run ({len(questions) - len(todo)} already answered) — {runner} on {model}, "
+    print(f"{len(todo)} to run ({len(questions) - len(todo)} already answered) — {runner} on {model}"
+          f"{f' (effort {effort})' if effort else ''}, "
           f"{the_set['benchmark']} {the_set['version']}")
 
     def one(q):
@@ -113,13 +115,14 @@ def cmd_run(args) -> None:
         return answer, events, {"outcome": "answered",
                                 "calculator_calls": sum("tool" in e for e in events)}
 
-    _run_all(args, solve_one, "API solver", solver.model)
+    _run_all(args, solve_one, "API solver", solver.model, None if solver.legacy_thinking else solver.effort)
 
 
 def cmd_arena(args) -> None:
     from . import arena
 
-    _run_all(args, lambda q: arena.solve(q["prompt"], args.model), "arena (headless Claude Code)", args.model)
+    _run_all(args, lambda q: arena.solve(q["prompt"], args.model, args.effort), "arena (headless Claude Code)",
+             args.model, args.effort)
 
 
 def calculator_numbers(transcript: Path) -> set[int]:
@@ -255,6 +258,8 @@ def main(argv=None) -> None:
     s.add_argument("--out", required=True, help="run directory (answers/, transcripts/, log.jsonl)")
     s.add_argument("--questions", default=str(DEFAULT_SET))
     s.add_argument("--workers", type=int, default=4)
+    s.add_argument("--effort", choices=("low", "medium", "high", "xhigh", "max"),
+                   help="the CLI's reasoning effort (models that support it); recorded in run.json")
     s.add_argument("--only", help="run only ids starting with these (comma-separated), e.g. deep-s10")
     s.set_defaults(fn=cmd_arena)
     s = sub.add_parser("score", help="grade a directory of {id}.txt answers")

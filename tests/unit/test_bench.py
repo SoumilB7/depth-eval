@@ -41,7 +41,7 @@ def graded(q, log):
 
 def test_suite_is_the_full_surface_with_its_own_seeds():
     s = B.suite()
-    assert len(s) == len(B.STEPS) * B.SAMPLES == len({x["id"] for x in s})
+    assert len(s) == len(B.CONFIGS) * len(B.STEPS) * B.SAMPLES == len({x["id"] for x in s})
     assert len({(x["list_seed"], x["instruction_seed"]) for x in s}) == len(s)
 
 
@@ -120,6 +120,8 @@ def test_a_run_carries_its_set_and_is_scored_only_against_it(q, tmp_path):
         _stamp(run, B.identity(tmp_path / "newer") | {"model": "m", "runner": "arena"})
     with pytest.raises(SystemExit):
         _stamp(run, B.identity(tmp_path / "set") | {"model": "other", "runner": "arena"})
+    with pytest.raises(SystemExit):   # nor at another reasoning effort
+        _stamp(run, B.identity(tmp_path / "set") | {"model": "m", "effort": "max", "runner": "arena"})
     with pytest.raises(SystemExit):   # never scored against another set
         main(["score", str(run / "answers"), "--questions", str(tmp_path / "newer")])
     main(["score", str(run / "answers"), "--questions", str(tmp_path / "set")])
@@ -292,7 +294,9 @@ def test_numbers_from_the_calculator_are_measured(tmp_path):
 
 
 def test_arena_audit_accepts_only_the_exact_setup():
-    from depth_eval.bench.arena import CALCULATORS, audit
+    from depth_eval.bench.arena import CALCULATORS, audit, command
+    assert command("m", tmp := __import__("pathlib").Path("x"))[:4] == ["claude", "-p", "--model", "m"]
+    assert command("m", tmp, "max")[4:6] == ["--effort", "max"] and "--effort" not in command("m", tmp)
     init = {"type": "system", "subtype": "init", "model": "m", "tools": sorted(CALCULATORS),
             "skills": [], "slash_commands": [], "plugins": []}
     call = {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "mcp__calc__calculator"}]}}

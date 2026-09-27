@@ -49,16 +49,20 @@ numbers it newly wrote, the share some calculator call returned).
 
 ## The question set
 
-80 questions, `benchmark/v2/questions.jsonl` — one axis, depth:
+160 questions, `benchmark/v2/questions.jsonl` — one axis, depth, at two
+settings:
 
 | axis | values |
 |---|---|
 | instructions (depth) | 10 · 20 · 40 · 60 · 80 · 100 · 120 · 160 |
-| questions per depth | 10, each on its own seed pair |
-| config | `deep` — the most interlinked setting |
+| questions per depth | 10 per setting, each on its own seed pair |
+| config | `deep` (first 80) · `shallow` (last 80) |
 | list length | 10 numbers |
 
-The deep config: about 55% of instructions name another instruction (a
+The shallow config draws far fewer lines that name another line (about
+22%) and only the simpler kinds (counts of changes, repeat and inverse,
+undo), so the two halves separate long-but-simple from
+long-and-interlinked. The deep config: about 55% of instructions name another instruction (a
 count of what it changed, the positions it applied to, a repeat, inverse
 or undo of it, a "from now on" edit or cancel of it), about 15% are held;
 operation families linear · scaling · shrinking 40 · 10 · 50; references
@@ -77,6 +81,19 @@ reach near · mid · far 1 · 1 · 3 with chain bias 0.8.
 | 120 | 7.7 (6–9) | 24.5 (19–31) | 68.0 | 20.6 |
 | 160 | 8.1 (5–11) | 29.3 (18–39) | 88.8 | 26.8 |
 
+Shallow, for comparison:
+
+| instructions | chain depth, mean (range) | held open at once, mean (range) | lines naming another | held lines |
+|---|---|---|---|---|
+| 10 | 2.3 (1–3) | 1.2 (0–2) | 2.0 | 1.2 |
+| 20 | 2.5 (2–4) | 1.7 (1–3) | 4.2 | 2.4 |
+| 40 | 2.6 (2–3) | 3.6 (1–6) | 9.1 | 3.9 |
+| 60 | 3.4 (3–5) | 4.8 (3–8) | 12.8 | 7.1 |
+| 80 | 3.0 (2–4) | 5.3 (2–7) | 18.2 | 11.0 |
+| 100 | 3.7 (2–6) | 6.5 (3–11) | 21.0 | 12.7 |
+| 120 | 3.5 (3–5) | 7.6 (5–10) | 26.4 | 15.1 |
+| 160 | 3.7 (2–5) | 10.8 (7–14) | 35.8 | 19.9 |
+
 *Chain depth* is the number of instructions in the longest chain of
 references (instruction 79 needs 97, which needs 78, which undoes 34 …).
 *Held open at once* is the most earlier results a later instruction still
@@ -94,8 +111,8 @@ after every instruction, and at most 15% of instructions leave the list
 unchanged. Every question is re-audited as it is written (re-validation,
 execution order, state threading).
 
-**Values.** Integers only, exact, any size. Most questions stay small; 21
-of 80 reach a value above 6 digits, 9 above 10, 1 above 20.
+**Values.** Integers only, exact, any size. Most questions stay small; 30
+of 160 reach a value above 6 digits, 9 above 10, 1 above 20.
 
 ## Scoring
 
@@ -136,7 +153,7 @@ counts. Report which runner produced a result; do not pool the two.
 state, the seed rule (question *i* uses list seed 2000000 + *i*,
 instruction seed 3000000 + *i*; a pair the generator cannot use moves on
 by 1000, and each record holds the seeds actually used) and the sha256 of
-`questions.jsonl`. `depth-eval verify` regenerates all 80 questions from
+`questions.jsonl`. `depth-eval verify` regenerates all 160 questions from
 the code and requires the same bytes. The question set changes only with
 a new version.
 
@@ -179,7 +196,7 @@ identity into `results.json`.
   measured.
 - Arithmetic and state tracking are not fully separable; the calculator
   setting reduces arithmetic's share of errors.
-- Ten questions per depth level: level rates carry wide intervals
+- Ten questions per depth level and setting: level rates carry wide intervals
   (±~30 points at 95%); report counts, and run more than once for close
   comparisons.
 

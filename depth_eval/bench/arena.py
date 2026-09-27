@@ -45,8 +45,11 @@ CALCULATORS = {"mcp__calc__calculator", "mcp__calc__bulk_calculator"}
 TIMEOUT = 3600  # seconds per question
 
 
-def command(model: str, mcp_config: Path) -> list[str]:
-    return ["claude", "-p", "--model", model,
+EFFORTS = ("low", "medium", "high", "xhigh", "max")  # the CLI's --effort levels
+
+
+def command(model: str, mcp_config: Path, effort: str | None = None) -> list[str]:
+    return ["claude", "-p", "--model", model, *(["--effort", effort] if effort else []),
             "--system-prompt", "", "--tools", "",
             "--mcp-config", str(mcp_config), "--strict-mcp-config",
             "--allowedTools", ",".join(sorted(CALCULATORS)),
@@ -86,14 +89,14 @@ def audit(events: list[dict], model: str) -> str | None:
     return None
 
 
-def solve(prompt: str, model: str) -> tuple[str | None, list[dict], dict]:
+def solve(prompt: str, model: str, effort: str | None = None) -> tuple[str | None, list[dict], dict]:
     """One question in its own empty folder. Returns (answer or None, the
     transcript events, a summary: outcome, turns, cost, tool calls)."""
     with tempfile.TemporaryDirectory() as folder:
         folder = Path(folder)
         cwd = folder / "arena"
         cwd.mkdir()
-        run = subprocess.run(command(model, _mcp_config(folder)), input=prompt, text=True,
+        run = subprocess.run(command(model, _mcp_config(folder), effort), input=prompt, text=True,
                              capture_output=True, cwd=cwd, timeout=TIMEOUT,
                              env={k: v for k, v in os.environ.items() if not k.startswith("CLAUDE_CODE_SIMPLE")})
     events = [json.loads(line) for line in run.stdout.splitlines() if line.strip().startswith("{")]
