@@ -1,9 +1,9 @@
-"""Claude through the Anthropic API — the benchmark solver.
+"""Claude through the Anthropic API — the reference solver.
 
 The integrity rule (eval-design.md, standing constraints; ruling
 2026-09-26): the solver never executes anything and never reaches our code
 or our answers. It gets the prompt as ONE user message and exactly two
-tools — the calculator and the bulk calculator (harness/calculator.py),
+tools — the calculator and the bulk calculator (calculator.py),
 pure integer arithmetic. No system prompt, no files, no other tool.
 `request()` builds every request in one place so a test can assert that.
 
@@ -22,8 +22,9 @@ Knobs (env, layered by .env — see .env.example):
 The model under test stays the model under test: no server-side fallbacks,
 never re-asked. A refusal, a max_tokens cut-off, or running past MAX_TURNS
 is what the model produced (graded — usually malformed). An API error
-after the SDK's own transport retries is OUR failure: it propagates and
-the run ends as `error` (agent.py), unscored.
+after the SDK's own transport retries is OUR failure: it propagates, the
+question gets no answer file, and scoring lists it as missing — never
+scored, re-run with `depth-eval run` (it resumes).
 """
 
 import logging
@@ -31,21 +32,20 @@ import os
 
 import anthropic
 
-from ..agent import Agent
-from ..calculator import TOOLS, CalculatorError
+from .calculator import TOOLS, CalculatorError
 
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 
-class Claude(Agent):
-    """One question: the prompt, the calculators, text back."""
+class Solver:
+    """One question: the prompt, the calculators, text back. `record` gets
+    every model turn and every tool call (the run's transcript)."""
 
     MAX_TURNS = 200  # model turns per question — a guard against a loop
 
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        self.client = anthropic.Anthropic()
-        self.model = os.environ.get("SOLVER_MODEL", "claude-opus-5")
+    def __init__(self, model: str | None = None, client=None) -> None:
+        self.client = client or anthropic.Anthropic()
+        self.model = model or os.environ.get("SOLVER_MODEL", "claude-opus-5")
         self.effort = os.environ.get("SOLVER_EFFORT", "high")
         self.max_tokens = int(os.environ.get("SOLVER_MAX_TOKENS", "64000"))
 
@@ -64,12 +64,12 @@ class Claude(Agent):
             "messages": messages,
         }
 
-    def solve(self, observation: dict) -> str:
-        messages = [{"role": "user", "content": observation["prompt"]}]
+    def solve(self, prompt: str, record=lambda event: None) -> str:
+        messages = [{"role": "user", "content": prompt}]
         for turn in range(1, self.MAX_TURNS + 1):
             with self.client.messages.stream(**self.request(messages)) as stream:
                 message = stream.get_final_message()
-            self.record({"call": {
+            record({"call": {
                 "turn": turn,
                 "model": message.model,
                 "stop_reason": message.stop_reason,
@@ -83,17 +83,17 @@ class Claude(Agent):
                 break
             messages.append({"role": "assistant", "content": message.content})
             messages.append({"role": "user", "content": [
-                self.use_tool(block) for block in message.content if block.type == "tool_use"
+                self.use_tool(block, record) for block in message.content if block.type == "tool_use"
             ]})
         else:
-            logger.warning(f"{self.env.spec}: no answer within {self.MAX_TURNS} turns")
+            logger.warning(f"no answer within {self.MAX_TURNS} turns")
             return ""
         if message.stop_reason == "refusal":
-            logger.warning(f"{self.env.spec}: the model refused")
+            logger.warning("the model refused")
             return ""
         return "".join(block.text for block in message.content if block.type == "text")
 
-    def use_tool(self, block) -> dict:
+    def use_tool(self, block, record) -> dict:
         """Run one tool call; the result block goes back to the model."""
         tool = TOOLS.get(block.name)
         try:
@@ -102,7 +102,7 @@ class Claude(Agent):
             output, is_error = tool.run(block.input), False
         except CalculatorError as e:
             output, is_error = f"Error: {e}", True
-        self.record({"tool": {"name": block.name, "input": block.input,
+        record({"tool": {"name": block.name, "input": block.input,
                               "output": output, "is_error": is_error}})
         return {"type": "tool_result", "tool_use_id": block.id,
                 "content": output, "is_error": is_error}

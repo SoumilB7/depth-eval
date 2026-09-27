@@ -7,10 +7,8 @@ The shape is fixed by the engine's CONVENTIONS (depth_eval/lines.py); this
 module only checks a reply against it. parse_stage_log accepts the object
 itself or the raw text of a model reply (the first JSON object in it, code
 fences and chatter tolerated) and returns the normalized dict, or raises
-MalformedAnswer saying what is wrong. What to DO about a malformed reply
-(retry, score it, bucket it) is the agent's policy — still an open
-decision (harness-study.md); the environment just grades it as diverging
-before stage 1.
+MalformedAnswer saying what is wrong. A malformed reply is the model's
+answer: single-shot, never retried, graded as diverging before stage 1.
 """
 
 import json

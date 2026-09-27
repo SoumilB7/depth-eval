@@ -23,8 +23,9 @@ venv/
 # Local scratch
 scratch/
 
-# Local test runs — never committed
-testruns/
+# model runs (answers, transcripts, results) — shared as releases, not in git
+runs/
 
-# Harness run artifacts — never committed
-recordings/
+# packaging artifacts
+build/
+dist/

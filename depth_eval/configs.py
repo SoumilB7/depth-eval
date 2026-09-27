@@ -1,7 +1,7 @@
 """Named generator configs, stored as openly editable JSON.
 
-Each file in the top-level `configs/` directory is one selectable state —
-`configs/deep.json` is loaded as load_config("deep"). Field names in the
+Each file in `depth_eval/configs/` is one selectable state —
+`depth_eval/configs/deep.json` is loaded as load_config("deep"). Field names in the
 JSON mirror GeneratorConfig exactly; unknown keys are an error so a typo
 can't silently fall back to a default.
 
@@ -16,7 +16,7 @@ from pathlib import Path
 
 from .generator import GeneratorConfig
 
-CONFIG_DIR = Path(__file__).resolve().parent.parent / "configs"
+CONFIG_DIR = Path(__file__).resolve().parent / "configs"  # package data
 
 _FIELDS = set(GeneratorConfig.__dataclass_fields__)
 

@@ -1,6 +1,8 @@
+__version__ = "1.0.0"  # the benchmark version: the question set changes only with it
+
 from .application import ALWAYS, WHOLE, Application
 from .configs import list_configs, load_config
-from .dag import Edge, build_edges, schedule
+from .dag import schedule
 from .generator import GeneratorConfig, Question, generate
 from .instructions import EditStep, ExecutionError, Step, execute
 from .lines import DataLine, Instruction, MoveInstruction, render_prompt, render_question
@@ -9,11 +11,12 @@ from .meta import META_VERBS, MetaInstruction, MetaVerb
 from .nomenclature import Label, classify, mix, split, type_of
 from .validation import Floors, Issue, validate
 from .ops import (ALL, NUMBER_OPS, At, B, Changed, NumberOp, P, POS, START, Scope, above,
-                  bigger_at, changed_more, even, even_at, odd, odd_at, resolvable, resolve,
+                  bigger_at, changed_more, even, even_at, odd, odd_at, resolve,
                   same_as, span, stride, touched, untouched)
 from .sequence import make_sequence, make_sequences
 
 __all__ = [
+    "__version__",
     "make_sequence",
     "make_sequences",
     "GeneratorConfig",
@@ -47,7 +50,6 @@ __all__ = [
     "untouched",
     "same_as",
     "resolve",
-    "resolvable",
     "DataLine",
     "Instruction",
     "MoveInstruction",
@@ -65,8 +67,6 @@ __all__ = [
     "execute",
     "render_prompt",
     "render_question",
-    "Edge",
-    "build_edges",
     "schedule",
     "Issue",
     "Floors",

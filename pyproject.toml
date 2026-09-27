@@ -1,9 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "depth-eval"
-version = "0.1.0"
-description = "Eval probing the depth of LLM instruction-following under mutating state"
+dynamic = ["version"]
+description = "A benchmark of how many chained, interdependent instructions a model can execute exactly in its head"
+readme = "README.md"
+license = { text = "MIT (code), CC BY 4.0 (question set)" }
 requires-python = ">=3.10"
 dependencies = ["sympy>=1.12", "python-dotenv>=1.0", "anthropic>=1.0"]
+
+[project.scripts]
+depth-eval = "depth_eval.bench.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "depth_eval.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["depth_eval*"]
+
+[tool.setuptools.package-data]
+depth_eval = ["configs/*.json"]
 
 [dependency-groups]
 dev = ["pytest>=8.0", "ruff>=0.4"]
